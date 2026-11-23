@@ -33,6 +33,16 @@ struct ForecastView: View {
         let selected = all[scenario]!
         List {
             Section {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                    HubTile(title: "חיסכון ויעדים", symbol: "leaf.fill") { SavingsView() }
+                    HubTile(title: "תקציבים", symbol: "chart.pie.fill") { BudgetsView() }
+                    HubTile(title: "חיובים קבועים", symbol: "repeat") { RecurringListView() }
+                    HubTile(title: "שאל את היועצת", symbol: "sparkles") { AdvisorChatView() }
+                }
+                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                .listRowBackground(Color.clear)
+            }
+            Section {
                 Picker("טווח", selection: $days) {
                     Text("7 ימים").tag(7); Text("14 ימים").tag(14); Text("30 ימים").tag(30)
                 }.pickerStyle(.segmented)
@@ -111,6 +121,7 @@ struct ForecastView: View {
                 ForEach(selected.assumptions, id: \.self) { Text($0).font(.footnote) }
             }
         }
-        .navigationTitle("תזרים עתידי")
+        .navigationTitle("תזרים וחיסכון")
+        .kesefScreen()
     }
 }

@@ -11,6 +11,10 @@ struct EntryEditorView: View {
     @Query private var categories: [Category]
 
     let existing: Entry?
+    /// מילוי מראש מההוספה המהירה ("עוד פרטים")
+    var prefill: QuickPrefill? = nil
+    /// נקרא אחרי שמירה מוצלחת (למשל כדי לסגור גם את חלון ההוספה המהירה)
+    var onSaved: (() -> Void)? = nil
 
     @State private var kind: EntryKind
     @State private var amountText = ""
@@ -38,8 +42,10 @@ struct EntryEditorView: View {
     @State private var showRefund = false
     @State private var showMore = false
 
-    init(kind: EntryKind = .expense, existing: Entry? = nil) {
+    init(kind: EntryKind = .expense, existing: Entry? = nil, prefill: QuickPrefill? = nil, onSaved: (() -> Void)? = nil) {
         self.existing = existing
+        self.prefill = prefill
+        self.onSaved = onSaved
         _kind = State(initialValue: existing?.kind ?? kind)
     }
 
@@ -230,6 +236,10 @@ struct EntryEditorView: View {
             if isNew && kind == .expense && title.isEmpty && amountText.isEmpty && categoryID == nil {
                 scope = Scope(rawValue: UserDefaults.standard.string(forKey: "homeSpace") ?? "") ?? .personal
             }
+            if isNew, let p = prefill, title.isEmpty && amountText.isEmpty {
+                amountText = p.amountText; title = p.title; scope = p.scope; categoryID = p.categoryID
+                if let a = p.accountID { accountID = a }
+            }
             return
         }
         amountText = MoneyFormat.editString(e.amount)
@@ -289,6 +299,7 @@ struct EntryEditorView: View {
             try context.save()
             Task { await AppLifecycle.refresh() }
             dismiss()
+            onSaved?()
         }
     }
 

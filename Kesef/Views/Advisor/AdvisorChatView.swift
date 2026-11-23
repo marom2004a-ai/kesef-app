@@ -183,7 +183,7 @@ struct ConsentView: View {
                 Button(action: onAccept) {
                     Text("אני מסכים — המשך").font(.headline).frame(maxWidth: .infinity, minHeight: 50)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.gold)
                 .padding(.top, 8)
             }
             .padding()

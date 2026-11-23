@@ -46,6 +46,7 @@ struct ReceiptsListView: View {
         }
         .searchable(text: $search, prompt: "חיפוש לפי לקוח, תיאור או מספר")
         .navigationTitle("הקבלות שלי")
+        .kesefScreen()
         .sheet(item: $selected) { d in NavigationStack { ReceiptDetailView(doc: d) } }
     }
 

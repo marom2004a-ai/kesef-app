@@ -108,6 +108,7 @@ struct BusinessPeriodReportView: View {
             }
         }
         .navigationTitle("דוח הכנסות")
+        .kesefScreen()
         .sheet(item: $editing) { e in NavigationStack { EntryEditorView(existing: e) } }
         .sheet(item: $attachTo) { e in NavigationStack { ExpenseReceiptCaptureView(attachTo: e) } }
     }

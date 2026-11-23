@@ -1,8 +1,10 @@
 import SwiftUI
 import Observation
 
+/// הלשוניות: בית, קבלות ודוחות, תזרים וחיסכון, עוד.
+/// תנועות וממתינות נגישות מהבית ומ"עוד"; הממתינות נפתחות כחלון.
 enum AppTab: Hashable {
-    case home, transactions, pending, forecast, more
+    case home, receipts, flow, more
 }
 
 /// ניווט גלובלי: פתיחת עסקה ממתינה מהתראה / מ-App Intent
@@ -15,9 +17,10 @@ final class AppRouter {
     /// עסקה ממתינה לפתוח במסך האישור
     var reviewEntryID: UUID?
     var showQuickAdd: QuickAddKind?
+    var showPending = false
 
     func openPending(_ id: UUID) {
-        selectedTab = .pending
+        showPending = true
         reviewEntryID = id
     }
 }

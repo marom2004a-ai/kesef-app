@@ -95,6 +95,7 @@ struct VatReportView: View {
             }
         }
         .navigationTitle("מע״מ וחלוקת רווח")
+        .kesefScreen()
         .sheet(isPresented: $showPayVAT) {
             AmountPromptView(title: "תשלום מע״מ", confirmTitle: "רישום") { m, d in
                 let e = Entry(kind: .taxPayment, status: .confirmed, amount: m, date: d, title: "תשלום מע״מ \(periodTitle(period))", scope: .business)

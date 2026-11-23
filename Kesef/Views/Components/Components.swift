@@ -4,11 +4,20 @@ import SwiftData
 // MARK: - עיצוב
 
 enum Theme {
+    /// זהב ענבר — צבע הנגיעה הראשי
     static let accent = Color("AccentColor")
-    static let income = Color(red: 0.12, green: 0.55, blue: 0.38)
-    static let expense = Color(red: 0.78, green: 0.25, blue: 0.22)
-    static let forecast = Color(red: 0.36, green: 0.40, blue: 0.80)
-    static let warning = Color.orange
+    static let gold = Color(red: 0.878, green: 0.659, blue: 0.306)        // #E0A84E
+    static let goldBright = Color(red: 0.910, green: 0.714, blue: 0.361)  // #E8B65C
+    static let onGold = Color(red: 0.165, green: 0.106, blue: 0.020)      // טקסט על זהב
+    static let background = Color(red: 0.071, green: 0.067, blue: 0.063) // #121110
+    static let surface = Color(red: 0.110, green: 0.102, blue: 0.090)     // #1C1A17
+    static let surfaceHigh = Color(red: 0.150, green: 0.140, blue: 0.125)
+    static let hairline = Color(red: 0.227, green: 0.196, blue: 0.141)    // #3A3224
+    static let mutedText = Color(red: 0.659, green: 0.624, blue: 0.565)   // #A89F90
+    static let income = Color(red: 0.62, green: 0.83, blue: 0.54)         // ירוק רך
+    static let expense = Color(red: 0.93, green: 0.50, blue: 0.42)        // אלמוג
+    static let forecast = Color(red: 0.55, green: 0.62, blue: 0.95)
+    static let warning = Color(red: 0.98, green: 0.72, blue: 0.30)
     static let corner: CGFloat = 22
 }
 
@@ -17,12 +26,42 @@ struct CardModifier: ViewModifier {
         content
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Theme.corner, style: .continuous))
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.corner, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).strokeBorder(Theme.hairline.opacity(0.6), lineWidth: 0.5))
     }
+}
+
+/// רקע כהה-חם לכל מסך (רשימות וטפסים מקבלים אותו גוון)
+struct KesefScreen: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .scrollContentBackground(.hidden)
+            .background(Theme.background.ignoresSafeArea())
+    }
+}
+
+/// כפתור ראשי: זהב עם טקסט כהה (ניגודיות טובה יותר מלבן על זהב)
+struct GoldButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.headline)
+            .foregroundStyle(Theme.onGold)
+            .padding(.horizontal, 16).padding(.vertical, 11)
+            .background((isEnabled ? Theme.gold : Theme.gold.opacity(0.35)).opacity(configuration.isPressed ? 0.8 : 1),
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == GoldButtonStyle {
+    static var gold: GoldButtonStyle { GoldButtonStyle() }
 }
 
 extension View {
     func card() -> some View { modifier(CardModifier()) }
+    func kesefScreen() -> some View { modifier(KesefScreen()) }
 }
 
 enum Fmt {
@@ -62,12 +101,15 @@ struct MoneyText: View {
     var font: Font = .body
     var colored: Bool = false
     var showPlus: Bool = false
+    /// צבע קבוע (למשל זהב לסכום הראשי) — גובר על colored
+    var color: Color? = nil
 
     var body: some View {
         Text(MoneyFormat.string(money, showPlus: showPlus))
             .font(font)
             .monospacedDigit()
-            .foregroundStyle(colored ? (money.isNegative ? Theme.expense : (money.isPositive ? Theme.income : .primary)) : .primary)
+            .foregroundStyle(color ?? (colored ? (money.isNegative ? Theme.expense : (money.isPositive ? Theme.income : .primary)) : .primary))
+            .contentTransition(.numericText())
             .lineLimit(1)
             .minimumScaleFactor(0.6)
     }
@@ -98,7 +140,7 @@ struct EmptyStateView: View {
             Text(title).font(.headline)
             Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
             if let actionTitle, let action {
-                Button(actionTitle, action: action).buttonStyle(.borderedProminent).padding(.top, 4)
+                Button(actionTitle, action: action).buttonStyle(.gold).padding(.top, 4)
             }
         }
         .padding(32)

@@ -50,6 +50,7 @@ struct PendingInboxView: View {
             }
         }
         .navigationTitle("ממתינות לאישור")
+        .kesefScreen()
         .sheet(item: $reviewing) { e in PendingReviewView(entry: e) }
         .onChange(of: router.reviewEntryID) { _, id in openFromRouter(id) }
         .onAppear { openFromRouter(router.reviewEntryID) }
@@ -236,7 +237,7 @@ struct PendingReviewView: View {
             Button(action: confirm) {
                 Text("אשר ושמור").font(.headline).frame(maxWidth: .infinity, minHeight: 52)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.gold)
             .disabled(amount == nil || amount?.isZero == true || title.trimmingCharacters(in: .whitespaces).isEmpty)
             HStack {
                 Button { withAnimation { editing.toggle() } } label: {

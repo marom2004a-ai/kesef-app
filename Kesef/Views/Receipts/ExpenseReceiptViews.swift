@@ -293,6 +293,7 @@ struct ExpenseReceiptsListView: View {
         }
         .searchable(text: $search, prompt: "חיפוש לפי בית עסק")
         .navigationTitle("קבלות ההוצאות")
+        .kesefScreen()
         .sheet(isPresented: $showCapture) { NavigationStack { ExpenseReceiptCaptureView() } }
         .sheet(item: $attachTo) { e in NavigationStack { ExpenseReceiptCaptureView(attachTo: e) } }
         .sheet(item: $viewing) { e in NavigationStack { ExpenseReceiptDetailView(entry: e) } }

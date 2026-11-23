@@ -38,13 +38,13 @@ enum DemoMode {
     @MainActor
     static func applyNavigation(router: AppRouter, context: ModelContext) {
         switch screen {
-        case "transactions": router.selectedTab = .transactions
-        case "pending": router.selectedTab = .pending
+        case "transactions": router.selectedTab = .more
+        case "pending": router.showPending = true
         case "review":
             let raw = EntryStatus.pendingReview.rawValue
             let pending = (try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { $0.statusRaw == raw }))) ?? []
             if let first = pending.first(where: { $0.source == .applePayShortcut }) { router.openPending(first.id) }
-        case "forecast": router.selectedTab = .forecast
+        case "forecast": router.selectedTab = .flow
         case "more": router.selectedTab = .more
         case "expense": router.showQuickAdd = .expense
         case "income": router.showQuickAdd = .income

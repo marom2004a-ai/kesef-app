@@ -2,22 +2,18 @@ import SwiftUI
 import SwiftData
 
 struct MoreView: View {
+    @Query(filter: #Predicate<Entry> { $0.statusRaw == "pendingReview" }) private var pending: [Entry]
+    private var pendingCount: Int { pending.count }
+
     var body: some View {
         List {
             Section {
-                NavigationLink { AdvisorChatView() } label: {
-                    Label("היועצת — שאל איך לחסוך", systemImage: "sparkles")
+                NavigationLink { TransactionsView() } label: { Label("כל התנועות", systemImage: "list.bullet.rectangle") }
+                NavigationLink { PendingInboxView() } label: {
+                    Label("ממתינות לאישור (Apple Pay)", systemImage: "tray.full.fill")
+                        .badge(pendingCount)
                 }
-                NavigationLink { ReceiptsListView() } label: {
-                    Label("הקבלות שלי — הפקה וארכיון", systemImage: "doc.text.fill")
-                }
-            }
-            Section("תכנון") {
-                NavigationLink { RecurringListView() } label: { Label("חיובים קבועים", systemImage: "repeat") }
-                NavigationLink { BudgetsView() } label: { Label("תקציבים", systemImage: "chart.pie") }
-                NavigationLink { SavingsView() } label: { Label("חיסכון, יעדים והמלצות", systemImage: "leaf") }
-                NavigationLink { VatReportView() } label: { Label("מע״מ וחלוקת רווח עם השותף", systemImage: "percent") }
-                NavigationLink { ReportsView() } label: { Label("דוחות וניתוח", systemImage: "chart.bar.xaxis") }
+                NavigationLink { AdvisorChatView() } label: { Label("היועצת — שאל איך לחסוך", systemImage: "sparkles") }
             }
             Section("נתונים") {
                 NavigationLink { AccountsView() } label: { Label("חשבונות וכרטיסים", systemImage: "building.columns") }
@@ -32,6 +28,7 @@ struct MoreView: View {
             }
         }
         .navigationTitle("עוד")
+        .kesefScreen()
     }
 }
 

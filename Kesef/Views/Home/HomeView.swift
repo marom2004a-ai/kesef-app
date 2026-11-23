@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 
+/// מסך הבית: מספר אחד גדול (רווח העסק / כמה נשאר לי), הכלב המלווה, סדרה ואתגר, והוספה מהירה.
 struct HomeView: View {
     @Environment(AppRouter.self) private var router
     @Query private var entries: [Entry]
@@ -8,295 +9,339 @@ struct HomeView: View {
     @Query private var rules: [RecurringRule]
     @Query private var categories: [Category]
     @AppStorage(AppSettings.Key.vatRegistered) private var vatRegistered = true
-    @State private var showAddAccount = false
     @AppStorage(AppSettings.Key.reserveMinor) private var reserveMinor = 0
     @AppStorage(AppSettings.Key.monthlySavingsMinor) private var savingsMinor = 0
     @AppStorage(AppSettings.Key.partnerShareBP) private var partnerBP = 0
+    @AppStorage(AppSettings.Key.partnerName) private var partnerName = "מרום"
+    @AppStorage(AppSettings.Key.vatPeriodMonths) private var periodMonths = 2
+    @State private var showAddAccount = false
+    @State private var showReceiptCapture = false
 
     /// מרחב תצוגה: עסקי / אישי (ערך ישן "all" נפתח כעסקי)
     @AppStorage("homeSpace") private var spaceRaw = Scope.business.rawValue
-    @State private var showReceiptCapture = false
     private var space: Scope { Scope(rawValue: spaceRaw) ?? .business }
+    private var isBusiness: Bool { space == .business }
 
-    /// נתונים מסוננים לפי המרחב: חשבונות של המרחב, ותנועות של המרחב או שנוגעות בחשבונות שלו
-    private var scoped: (accounts: [AccountSnapshot], entries: [EntrySnapshot], rules: [RecurringSnapshot]) {
+    private let cal = FinanceCalendar.israel
+
+    // MARK: נתונים
+
+    private struct Model {
+        var dashboard: DashboardSnapshot
+        var series: [MonthPoint]
+        var headline: Money
+        var changeBP: Int?
+        var isRecord: Bool
+        var partnerShare: Money?
+        var missingReceipts: Int
+        var periodExpenseCount: Int
+        var streak: Int
+        var savedThisMonth: Money
+        var monthIncome: Money
+        var monthExpenses: Money
+        var companion: CompanionMessage
+    }
+
+    private func buildModel() -> Model {
         let accs = accounts.map(\.snapshot)
-        let ents = entries.map(\.snapshot)
-        let rls = rules.map(\.snapshot)
+        let all = entries.map(\.snapshot)
         let ids = Set(accs.filter { $0.scope == space }.map(\.id))
-        return (accs.filter { $0.scope == space },
-                ents.filter { $0.scope == space || $0.accountID.map { ids.contains($0) } == true || $0.toAccountID.map { ids.contains($0) } == true },
-                rls.filter { $0.scope == space })
+        let scopedEntries = all.filter { $0.scope == space || $0.accountID.map { ids.contains($0) } == true || $0.toAccountID.map { ids.contains($0) } == true }
+        let deductible = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.vatDeductibleBP) })
+        let vat = AppSettings.vat
+        let d = DashboardEngine.build(now: .now, accounts: accs.filter { $0.scope == space }, entries: scopedEntries,
+                                      recurring: rules.map(\.snapshot).filter { $0.scope == space },
+                                      partner: (partnerBP > 0 && isBusiness) ? AppSettings.partner : nil,
+                                      monthlySavingsTarget: Money(minorUnits: Int64(savingsMinor)), reserve: Money(minorUnits: Int64(reserveMinor)),
+                                      vat: (vatRegistered && isBusiness) ? vat : nil, vatDeductibleBP: deductible)
+        let series = isBusiness
+            ? MonthlySeries.businessProfit(entries: all, months: 6, now: .now, vat: vat, deductibleBP: deductible, calendar: cal)
+            : MonthlySeries.personalNet(entries: all, months: 6, now: .now, calendar: cal)
+        let current = series.last?.value ?? .zero
+        let previous = series.count > 1 ? series[series.count - 2].value : .zero
+        let monthSummary = BalanceEngine.summary(entries: all, in: cal.monthRange(.now), scope: space)
+
+        // קבלות: רק הוצאות עסקיות מאושרות
+        let bizExpenses = entries.filter { $0.scope == .business && $0.kind == .expense && $0.status == .confirmed }
+            .sorted { $0.date > $1.date }
+        let period = VatEngine.period(containing: .now, settings: vat, calendar: cal)
+        let inPeriod = bizExpenses.filter { period.contains($0.date) }
+        let missing = inPeriod.filter { $0.receiptImage == nil }.count
+        let streak = Streaks.receipts(hasReceiptNewestFirst: bizExpenses.prefix(60).map { $0.receiptImage != nil })
+
+        let share: Money? = (isBusiness && partnerBP > 0 && current.isPositive) ? current.multiplied(byBasisPoints: partnerBP) : nil
+        let saved = monthSummary.net
+        let companion = CompanionAdvisor.message(CompanionInput(
+            isBusiness: isBusiness, pendingCount: d.pendingReviewCount, missingReceipts: missing, receiptStreak: streak,
+            changeBP: MonthlySeries.changeBP(current: current, previous: previous), isRecordMonth: MonthlySeries.isRecord(series),
+            savedThisMonth: saved, savingsTarget: Money(minorUnits: Int64(savingsMinor)), dayOfMonth: cal.day(.now)))
+
+        return Model(dashboard: d, series: series, headline: isBusiness ? current : d.safeToSpend,
+                     changeBP: MonthlySeries.changeBP(current: current, previous: previous), isRecord: MonthlySeries.isRecord(series),
+                     partnerShare: share, missingReceipts: missing, periodExpenseCount: inPeriod.count, streak: streak,
+                     savedThisMonth: saved, monthIncome: monthSummary.income, monthExpenses: monthSummary.netExpenses,
+                     companion: companion)
     }
 
-    private var dashboard: DashboardSnapshot {
-        let s = scoped
-        return DashboardEngine.build(now: .now, accounts: s.accounts, entries: s.entries,
-                              recurring: s.rules, partner: (partnerBP > 0 && space != .personal) ? AppSettings.partner : nil,
-                              monthlySavingsTarget: Money(minorUnits: Int64(savingsMinor)), reserve: Money(minorUnits: Int64(reserveMinor)),
-                              vat: (vatRegistered && space != .personal) ? AppSettings.vat : nil,
-                              vatDeductibleBP: Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.vatDeductibleBP) }))
-    }
-
-    private var spacePicker: some View {
-        Picker("מרחב", selection: Binding(get: { space.rawValue }, set: { spaceRaw = $0 })) {
-            Text("🐾 עסקי").tag(Scope.business.rawValue)
-            Text("👤 אישי").tag(Scope.personal.rawValue)
-        }
-        .pickerStyle(.segmented)
-    }
+    // MARK: מסך
 
     var body: some View {
-        let d = dashboard
+        let m = buildModel()
         ScrollView {
             VStack(spacing: 14) {
-                spacePicker
+                header
                 if accounts.filter({ !$0.isArchived }).isEmpty {
                     EmptyStateView(symbol: "building.columns", title: "בוא נתחיל",
                                    message: "הוסף חשבון בנק, מזומן או כרטיס אשראי עם היתרה הנוכחית שלו. אחר כך אפשר להוסיף הכנסות והוצאות.",
                                    actionTitle: "הוספת חשבון ראשון") { showAddAccount = true }
                         .card()
-                } else {
-                    balanceCard(d)
                 }
-                if !d.warnings.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(d.warnings, id: \.self) { w in
-                            Label(w, systemImage: "exclamationmark.triangle.fill").font(.subheadline).foregroundStyle(Theme.warning)
-                        }
-                    }.card()
+                heroCard(m)
+                if m.dashboard.pendingReviewCount > 0 { pendingCard(m.dashboard.pendingReviewCount) }
+                NavigationLink { AdvisorChatView() } label: { CompanionCard(message: m.companion) }
+                    .buttonStyle(.plain)
+                HStack(spacing: 10) {
+                    if isBusiness {
+                        streakTile(m)
+                        receiptsTile(m)
+                    } else {
+                        challengeTile(m)
+                        monthTile(m)
+                    }
                 }
-                if d.pendingReviewCount > 0 { pendingCard(d.pendingReviewCount) }
-                if space == .business { businessShortcuts }
-                advisorCard
-                monthGrid(d)
-                forecastCard(d)
-                if let owed = d.partnerOwed { partnerCard(owed) }
-                upcomingCard
-                Color.clear.frame(height: 8)
+                if let w = m.dashboard.warnings.first {
+                    Label(w, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote).foregroundStyle(Theme.warning)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 4)
+                }
+                Color.clear.frame(height: 4)
             }
             .padding(.horizontal)
         }
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle(space == .business ? "העסק" : "הכסף שלי — אישי")
-        .sheet(isPresented: $showReceiptCapture) { NavigationStack { ExpenseReceiptCaptureView() } }
+        .scrollIndicators(.hidden)
+        .background(Theme.background.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom, spacing: 0) { quickAddBar }
         .sheet(isPresented: $showAddAccount) { NavigationStack { AccountEditorView(account: nil) } }
+        .sheet(isPresented: $showReceiptCapture) { NavigationStack { ExpenseReceiptCaptureView() } }
+        .onAppear { celebrate(m) }
     }
 
     // MARK: חלקים
 
-    /// קיצורי העסק: דוח דו-חודשי, צילום קבלת הוצאה, קבלות שהופקו, מע״מ ומרום
-    private var businessShortcuts: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-            Button { showReceiptCapture = true } label: {
-                shortcutLabel("צילום קבלת הוצאה", "camera.fill")
-            }
-            .buttonStyle(.borderedProminent)
-            NavigationLink { BusinessPeriodReportView() } label: {
-                shortcutLabel("דוח הכנסות דו-חודשי", "doc.text.magnifyingglass")
-            }
-            .buttonStyle(.bordered)
-            NavigationLink { ExpenseReceiptsListView() } label: {
-                shortcutLabel("קבלות ההוצאות", "tray.full.fill")
-            }
-            .buttonStyle(.bordered)
-            NavigationLink { ReceiptsListView() } label: {
-                shortcutLabel("קבלות שהפקתי", "doc.text.fill")
-            }
-            .buttonStyle(.bordered)
-            NavigationLink { VatReportView() } label: {
-                shortcutLabel("מע״מ ומרום", "percent")
-            }
-            .buttonStyle(.bordered)
+    private var greeting: String {
+        switch cal.calendar.component(.hour, from: .now) {
+        case 5..<12: return "בוקר טוב"
+        case 12..<17: return "צהריים טובים"
+        case 17..<22: return "ערב טוב"
+        default: return "לילה טוב"
         }
     }
 
-    private func shortcutLabel(_ title: String, _ symbol: String) -> some View {
-        Label(title, systemImage: symbol).font(.subheadline.weight(.semibold))
-            .lineLimit(2).multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity, minHeight: 48)
-    }
-
-    private func balanceCard(_ d: DashboardSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("יתרה נוכחית").font(.subheadline).foregroundStyle(.secondary)
-                Spacer()
-                DataKindBadge(isForecast: false)
+    private var header: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(greeting).font(.system(size: 26, weight: .bold, design: .rounded))
+                Text(Fmt.monthYear(.now)).font(.subheadline).foregroundStyle(Theme.mutedText)
             }
-            MoneyText(money: d.currentBalance, font: .system(size: 42, weight: .bold, design: .rounded), colored: d.currentBalance.isNegative)
-            if let last = d.lastBalanceUpdate {
-                Text("לפי היתרות שעודכנו לאחרונה ב-\(Fmt.dateTime(last)) ותנועות מאושרות מאז")
-                    .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            HStack(spacing: 2) {
+                spaceButton(.business, "עסקי")
+                spaceButton(.personal, "אישי")
             }
-            HStack(spacing: 16) {
-                if !d.creditCardDebt.isZero {
-                    VStack(alignment: .leading) {
-                        Text("חוב באשראי").font(.caption).foregroundStyle(.secondary)
-                        MoneyText(money: d.creditCardDebt, font: .subheadline.weight(.semibold), colored: true)
-                    }
-                }
-                if !d.savings.isZero {
-                    VStack(alignment: .leading) {
-                        Text("בחיסכון").font(.caption).foregroundStyle(.secondary)
-                        MoneyText(money: d.savings, font: .subheadline.weight(.semibold))
-                    }
-                }
-            }
+            .padding(3)
+            .background(Theme.surface, in: Capsule())
+            .sensoryFeedback(.selection, trigger: spaceRaw)
         }
-        .card()
+        .padding(.top, 8)
     }
 
-    private var advisorCard: some View {
-        NavigationLink { AdvisorChatView() } label: {
-            HStack {
-                Image(systemName: "sparkles").font(.title2).foregroundStyle(Theme.accent)
-                VStack(alignment: .leading) {
-                    Text("שאל את היועצת").font(.headline)
-                    Text("על מה אתה מוציא יותר מדי ואיך לחסוך").font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.left").foregroundStyle(.tertiary)
-            }
-            .card()
+    private func spaceButton(_ s: Scope, _ title: String) -> some View {
+        let selected = space == s
+        return Button { withAnimation(.snappy) { spaceRaw = s.rawValue } } label: {
+            Text(title).font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14).padding(.vertical, 7)
+                .foregroundStyle(selected ? Theme.onGold : Theme.mutedText)
+                .background(selected ? Theme.gold : Color.clear, in: Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func heroCard(_ m: Model) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(isBusiness ? "העסק הרוויח החודש · אחרי מע״מ" : "נשאר לך לשימוש החודש")
+                .font(.subheadline).foregroundStyle(Theme.mutedText)
+            MoneyText(money: m.headline, font: .system(size: 46, weight: .bold, design: .rounded),
+                      color: m.headline.isNegative ? Theme.expense : Theme.goldBright)
+                .animation(.snappy, value: m.headline)
+            HStack(spacing: 8) {
+                if let c = m.changeBP {
+                    Label("\(abs(c) / 100)% מהחודש שעבר", systemImage: c >= 0 ? "arrow.up.right" : "arrow.down.right")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .foregroundStyle(c >= 0 ? Theme.income : Theme.expense)
+                        .background((c >= 0 ? Theme.income : Theme.expense).opacity(0.14), in: Capsule())
+                }
+                if m.isRecord {
+                    Text("🏆 שיא").font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .foregroundStyle(Theme.goldBright).background(Theme.gold.opacity(0.15), in: Capsule())
+                }
+            }
+            if let share = m.partnerShare {
+                Text("לך \(MoneyFormat.string(m.headline - share)) · ל\(partnerName) \(MoneyFormat.string(share))")
+                    .font(.footnote).foregroundStyle(Theme.mutedText)
+            } else if !isBusiness {
+                Text("אחרי חיובים קבועים, יעד חיסכון וכרית ביטחון · תחזית")
+                    .font(.footnote).foregroundStyle(Theme.mutedText)
+            }
+            MiniBars(points: m.series).frame(height: 54).padding(.top, 4)
+        }
+        .card()
     }
 
     private func pendingCard(_ count: Int) -> some View {
-        Button { router.selectedTab = .pending } label: {
-            HStack {
-                Image(systemName: "tray.full.fill").font(.title2).foregroundStyle(Theme.accent)
-                VStack(alignment: .leading) {
-                    Text(count == 1 ? "עסקה אחת ממתינה לאישור" : "\(count) עסקאות ממתינות לאישור").font(.headline)
-                    Text("רכישות Apple Pay וחיובים קבועים שעוד לא אישרת").font(.caption).foregroundStyle(.secondary)
+        Button { router.showPending = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "applelogo").font(.title3).foregroundStyle(Theme.onGold)
+                    .frame(width: 40, height: 40).background(Theme.gold, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(count == 1 ? "רכישה אחת מחכה לאישור" : "\(count) רכישות מחכות לאישור").font(.headline)
+                    Text("Apple Pay וחיובים קבועים").font(.caption).foregroundStyle(Theme.mutedText)
                 }
                 Spacer()
-                Image(systemName: "chevron.left").foregroundStyle(.tertiary)
+                Image(systemName: "chevron.left").foregroundStyle(Theme.mutedText)
             }
             .card()
         }
         .buttonStyle(.plain)
     }
 
-    private func monthGrid(_ d: DashboardSnapshot) -> some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-            tile("הכנסות החודש", d.monthIncome, symbol: "arrow.down.circle.fill", color: Theme.income, forecast: false)
-            tile("הוצאות החודש", d.monthExpenses, symbol: "arrow.up.circle.fill", color: Theme.expense, forecast: false)
-            tile("הכנסות צפויות", d.expectedIncome, symbol: "clock.arrow.circlepath", color: Theme.forecast, forecast: true)
-            tile("הוצאות עתידיות", d.upcomingExpenses, symbol: "calendar.badge.clock", color: Theme.forecast, forecast: true)
-        }
-    }
-
-    private func tile(_ title: String, _ money: Money, symbol: String, color: Color, forecast: Bool) -> some View {
+    private func smallTile<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Image(systemName: symbol).foregroundStyle(color)
-                Spacer()
-                DataKindBadge(isForecast: forecast)
-            }
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            MoneyText(money: money, font: .title3.weight(.semibold))
+            Text(title).font(.caption).foregroundStyle(Theme.mutedText)
+            content()
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.hairline.opacity(0.6), lineWidth: 0.5))
     }
 
-    private func forecastCard(_ d: DashboardSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("סכום פנוי לשימוש").font(.headline)
-                Spacer()
-                DataKindBadge(isForecast: true)
+    private func streakTile(_ m: Model) -> some View {
+        NavigationLink { ExpenseReceiptsListView() } label: {
+            smallTile("🔥 סדרת קבלות") {
+                Text(m.streak == 1 ? "קבלה אחת" : "\(m.streak) ברצף")
+                    .font(.system(size: 22, weight: .bold, design: .rounded)).foregroundStyle(Theme.goldBright)
+                Text(m.streak == 0 ? "צלם את הקבלה הבאה" : "הוצאות עם צילום").font(.caption2).foregroundStyle(Theme.mutedText)
             }
-            MoneyText(money: d.safeToSpend, font: .system(size: 34, weight: .bold, design: .rounded))
-                .foregroundStyle(Theme.accent)
-            Text("היתרה הנמוכה ביותר עד סוף החודש בתרחיש שמרני — אחרי חיובים, הוצאות מתוכננות, חלק השותף ויעד החיסכון — פחות כרית הביטחון.")
-                .font(.caption).foregroundStyle(.secondary)
-            Divider()
-            HStack {
-                VStack(alignment: .leading) {
-                    Text("תחזית לסוף החודש").font(.caption).foregroundStyle(.secondary)
-                    MoneyText(money: d.forecastEndOfMonth, font: .headline, colored: true)
-                }
-                Spacer()
-                VStack(alignment: .leading) {
-                    Text("בתרחיש שמרני").font(.caption).foregroundStyle(.secondary)
-                    MoneyText(money: d.forecastEndOfMonthConservative, font: .headline, colored: true)
-                }
-            }
-            Button("לתחזית המלאה") { router.selectedTab = .forecast }.font(.subheadline)
         }
-        .card()
+        .buttonStyle(.plain)
     }
 
-    private func partnerCard(_ owed: Money) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("חלק השותף החודש (\(AppSettings.partner.name))").font(.subheadline).foregroundStyle(.secondary)
-            MoneyText(money: owed, font: .title3.weight(.semibold))
-            Text(owed.isNegative ? "שולם לשותף יותר מחלקו החודש." : "כסף ששייך לשותף — לא נכלל בסכום הפנוי. מחושב מהרווח אחרי מע״מ.")
-                .font(.caption).foregroundStyle(.secondary)
-        }.card()
+    private func receiptsTile(_ m: Model) -> some View {
+        let done = m.periodExpenseCount - m.missingReceipts
+        return NavigationLink { BusinessPeriodReportView() } label: {
+            smallTile("קבלות בתקופה") {
+                Text("\(done)/\(m.periodExpenseCount)").font(.system(size: 22, weight: .bold, design: .rounded)).monospacedDigit()
+                ProgressView(value: m.periodExpenseCount == 0 ? 1 : Double(done) / Double(m.periodExpenseCount))
+                    .tint(m.missingReceipts == 0 ? Theme.income : Theme.gold)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
-    private var upcomingCard: some View {
-        let cal = FinanceCalendar.israel
-        let now = Date.now
-        let end = cal.addDays(14, to: now)
-        let sc = scoped
-        let snapshots = sc.entries
-        var items: [(Date, String, Money, Bool)] = []
-        for r in sc.rules where !r.isPaused {
-            for o in RecurrenceEngine.occurrences(of: r, from: now, to: end, calendar: cal)
-            where !RecurrenceEngine.isRecorded(rule: r.id, occurrence: o, entries: snapshots, calendar: cal) {
-                items.append((o, r.title, r.amount, r.kind == .income))
-            }
-        }
-        for e in sc.entries where e.status == .planned && e.date >= cal.startOfDay(now) && e.date < end {
-            items.append((e.date, e.title, e.amount, e.kind == .income))
-        }
-        items.sort { $0.0 < $1.0 }
-        return VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: "ב-14 הימים הקרובים", trailing: "תחזית")
-            if items.isEmpty {
-                Text("אין חיובים או הכנסות מתוכננים.").font(.subheadline).foregroundStyle(.secondary)
-            } else {
-                ForEach(Array(items.prefix(6).enumerated()), id: \.offset) { _, item in
-                    HStack {
-                        Text(Fmt.dayMonth(item.0)).font(.caption).foregroundStyle(.secondary).frame(width: 72, alignment: .leading)
-                        Text(item.1).lineLimit(1)
-                        Spacer()
-                        MoneyText(money: item.3 ? item.2 : -item.2, font: .subheadline, colored: true, showPlus: item.3)
-                    }
+    private func challengeTile(_ m: Model) -> some View {
+        let target = Money(minorUnits: Int64(savingsMinor))
+        return NavigationLink { SavingsView() } label: {
+            smallTile("🎯 אתגר החודש") {
+                if target.isPositive {
+                    let saved = m.savedThisMonth.isPositive ? m.savedThisMonth : .zero
+                    let ratio = min(1, Double(saved.minorUnits) / Double(target.minorUnits))
+                    ProgressView(value: ratio).tint(ratio >= 1 ? Theme.income : Theme.gold)
+                    Text("חסכת \(MoneyFormat.string(saved)) מ-\(MoneyFormat.string(target))").font(.caption).lineLimit(1).minimumScaleFactor(0.7)
+                } else {
+                    Text("הגדר יעד חיסכון").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.goldBright)
+                    Text("ונתחיל אתגר").font(.caption2).foregroundStyle(Theme.mutedText)
                 }
             }
-        }.card()
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func monthTile(_ m: Model) -> some View {
+        NavigationLink { TransactionsView() } label: {
+            smallTile("הוצאות החודש") {
+                MoneyText(money: m.monthExpenses, font: .system(size: 22, weight: .bold, design: .rounded))
+                Text("הכנסות \(MoneyFormat.string(m.monthIncome))").font(.caption2).foregroundStyle(Theme.mutedText)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     /// פס הוספה מהירה קבוע מעל סרגל הלשוניות — לא מכסה תוכן (safeAreaInset)
     private var quickAddBar: some View {
         HStack(spacing: 10) {
             Button { router.showQuickAdd = .expense } label: {
-                Text("+ הוצאה")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 50)
+                Label("הוצאה", systemImage: "plus").frame(maxWidth: .infinity, minHeight: 30)
             }
-            .buttonStyle(.borderedProminent)
-
+            .buttonStyle(.gold)
+            if isBusiness {
+                Button { showReceiptCapture = true } label: {
+                    Image(systemName: "camera.fill").font(.headline).frame(width: 54, height: 52)
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.hairline, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("צילום קבלת הוצאה")
+            }
             Button { router.showQuickAdd = .income } label: {
-                Text("+ הכנסה")
-                    .font(.headline)
-                    .fixedSize()
-                    .padding(.horizontal, 8)
-                    .frame(minHeight: 50)
+                Label("הכנסה", systemImage: "plus").font(.headline).foregroundStyle(Theme.income)
+                    .padding(.horizontal, 16).frame(minHeight: 52)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.hairline, lineWidth: 1))
             }
-            .buttonStyle(.bordered)
-            .tint(Theme.income)
+            .buttonStyle(.plain)
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
-        .background(.bar)
+        .background(Theme.background)
+    }
+
+    private func celebrate(_ m: Model) {
+        let key = cal.monthKey(.now)
+        if isBusiness && m.isRecord && cal.day(.now) >= 10 {
+            Celebrations.shared.celebrate("record-\(key)", message: "חודש שיא לעסק! 🏆")
+        }
+        let target = Money(minorUnits: Int64(savingsMinor))
+        if !isBusiness && target.isPositive && m.savedThisMonth >= target {
+            Celebrations.shared.celebrate("savings-\(key)", message: "עמדת ביעד החיסכון! 🎉")
+        }
+    }
+}
+
+/// גרף עמודות קטן של 6 חודשים — החודש הנוכחי בזהב
+struct MiniBars: View {
+    var points: [MonthPoint]
+
+    var body: some View {
+        let maxAbs = max(1, points.map { abs($0.value.minorUnits) }.max() ?? 1)
+        HStack(alignment: .bottom, spacing: 8) {
+            ForEach(Array(points.enumerated()), id: \.offset) { i, p in
+                let isLast = i == points.count - 1
+                VStack(spacing: 4) {
+                    Spacer(minLength: 0)
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(p.value.isNegative ? Theme.expense.opacity(0.6) : (isLast ? Theme.gold : Theme.hairline))
+                        .frame(height: max(4, 36 * CGFloat(abs(p.value.minorUnits)) / CGFloat(maxAbs)))
+                    Text(Fmt.shortMonth(p.monthStart)).font(.system(size: 10)).foregroundStyle(isLast ? Theme.goldBright : Theme.mutedText)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .environment(\.layoutDirection, .leftToRight)
+        .accessibilityHidden(true)
     }
 }

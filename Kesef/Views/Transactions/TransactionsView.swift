@@ -95,6 +95,7 @@ struct TransactionsView: View {
         }
         .searchable(text: $search, prompt: "חיפוש לפי תיאור או הערה")
         .navigationTitle("תנועות")
+        .kesefScreen()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {

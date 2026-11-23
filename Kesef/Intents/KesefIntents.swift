@@ -86,7 +86,8 @@ struct OpenPendingIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        AppRouter.shared.selectedTab = .pending
+        AppRouter.shared.selectedTab = .home
+        AppRouter.shared.showPending = true
         return .result()
     }
 }

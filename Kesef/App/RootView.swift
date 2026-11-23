@@ -29,23 +29,29 @@ struct RootView: View {
                 NavigationStack { HomeView() }
                     .tabItem { Label("בית", systemImage: "house.fill") }
                     .tag(AppTab.home)
-                NavigationStack { TransactionsView() }
-                    .tabItem { Label("תנועות", systemImage: "list.bullet.rectangle") }
-                    .tag(AppTab.transactions)
-                NavigationStack { PendingInboxView() }
-                    .tabItem { Label("ממתינות", systemImage: "tray.full.fill") }
-                    .badge(pending.count)
-                    .tag(AppTab.pending)
+                NavigationStack { ReceiptsHubView() }
+                    .tabItem { Label("קבלות ודוחות", systemImage: "doc.text.fill") }
+                    .tag(AppTab.receipts)
                 NavigationStack { ForecastView() }
-                    .tabItem { Label("תזרים", systemImage: "chart.line.uptrend.xyaxis") }
-                    .tag(AppTab.forecast)
+                    .tabItem { Label("תזרים וחיסכון", systemImage: "chart.line.uptrend.xyaxis") }
+                    .tag(AppTab.flow)
                 NavigationStack { MoreView() }
                     .tabItem { Label("עוד", systemImage: "square.grid.2x2.fill") }
+                    .badge(pending.count)
                     .tag(AppTab.more)
             }
             .sheet(item: $router.showQuickAdd) { kind in
-                NavigationStack { EntryEditorView(kind: kind == .income ? .income : .expense) }
+                NavigationStack { QuickEntryView(kind: kind == .income ? .income : .expense) }
+                    .presentationDetents([.large])
             }
+            .sheet(isPresented: $router.showPending) {
+                NavigationStack {
+                    PendingInboxView()
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("סגירה") { router.showPending = false } } }
+                }
+            }
+
+            CelebrationOverlay()
 
             // הסתרת נתונים במעבר בין אפליקציות
             if scenePhase != .active && lock.isEnabled {
@@ -85,7 +91,7 @@ struct LockScreen: View {
                     Label("פתח עם \(AppLock.biometryName)", systemImage: "faceid")
                         .frame(maxWidth: .infinity, minHeight: 50)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.gold)
                 .padding(.horizontal, 40)
                 if let e = lock.lastError { Text(e).font(.footnote).foregroundStyle(Theme.expense) }
             }

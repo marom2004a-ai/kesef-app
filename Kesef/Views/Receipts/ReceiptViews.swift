@@ -112,7 +112,7 @@ struct IssueReceiptView: View {
                     }
                     .frame(maxWidth: .infinity, minHeight: 44)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.gold)
                 .disabled(sending)
             } footer: {
                 Text("המסמך מופק במערכת morning (תוכנה רשומה), נחתם דיגיטלית ונשלח ללקוח במייל אם הוזן. אחרי ההפקה ההכנסה נרשמת כאן אוטומטית — כולל מע״מ וחלוקה עם השותף.")
@@ -139,7 +139,7 @@ struct IssueReceiptView: View {
             }
             if let url = doc.url {
                 ShareLink(item: url) { Label("שיתוף המסמך (וואטסאפ / מייל)", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity, minHeight: 44) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.gold)
                 Link(destination: url) { Label("פתיחת המסמך", systemImage: "doc.richtext") }
             }
             Button("מסמך חדש") { reset() }.padding(.top)
