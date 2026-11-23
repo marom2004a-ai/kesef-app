@@ -19,7 +19,7 @@ jobs:
     container: swift:6.1
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: swift test
         run: swift test
 
@@ -28,7 +28,7 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Xcode version
         run: xcodebuild -version && xcrun simctl list runtimes
       - name: Pick an iPhone simulator
@@ -59,7 +59,7 @@ jobs:
           exit $STATUS
       - name: Upload log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: xcodebuild-log
           path: |

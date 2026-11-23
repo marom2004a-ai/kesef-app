@@ -7,6 +7,10 @@ enum Persistence {
     static let shared: ModelContainer = makeContainer(inMemory: false)
 
     static func makeContainer(inMemory: Bool) -> ModelContainer {
+        // בהפעלה הראשונה תיקיית Application Support עוד לא קיימת — יוצרים אותה מראש
+        if !inMemory {
+            try? FileManager.default.createDirectory(at: URL.applicationSupportDirectory, withIntermediateDirectories: true)
+        }
         let schema = Schema(KesefSchema.models)
         let config = ModelConfiguration("Kesef", schema: schema, isStoredInMemoryOnly: inMemory,
                                         allowsSave: true, cloudKitDatabase: .none)
