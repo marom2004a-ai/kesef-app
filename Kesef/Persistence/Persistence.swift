@@ -4,7 +4,17 @@ import SwiftData
 /// מיכל נתונים אחד משותף לאפליקציה ול-App Intents (שרצים באותו תהליך).
 @MainActor
 enum Persistence {
-    static let shared: ModelContainer = makeContainer(inMemory: false)
+    static let shared: ModelContainer = {
+        #if DEBUG
+        if DemoMode.isOn {
+            // מצב הדגמה: נתונים מומצאים בזיכרון בלבד — לא נוגע במאגר האמיתי
+            let c = makeContainer(inMemory: true)
+            DemoData.seed(c.mainContext)
+            return c
+        }
+        #endif
+        return makeContainer(inMemory: false)
+    }()
 
     static func makeContainer(inMemory: Bool) -> ModelContainer {
         // בהפעלה הראשונה תיקיית Application Support עוד לא קיימת — יוצרים אותה מראש

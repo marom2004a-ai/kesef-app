@@ -1,0 +1,79 @@
+# צילומי מסך של כל המסכים על סימולטור אייפון, עם נתוני הדגמה מומצאים (מצב Debug בלבד).
+# הפעלה: gh workflow run screenshots.yml
+name: Screenshots
+
+on:
+  workflow_dispatch:
+
+jobs:
+  shots:
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin)["devices"]
+          ios=[(k,v) for k,v in d.items() if "iOS" in k]
+          ios.sort(key=lambda kv: [int(x) for x in kv[0].split("iOS-")[-1].split("-")])
+          for k,v in reversed(ios):
+              for dev in v:
+                  if dev["name"] in ("iPhone 16 Pro","iPhone 16","iPhone 17 Pro","iPhone 17","iPhone 15 Pro"):
+                      print(dev["udid"]); sys.exit()
+          for k,v in reversed(ios):
+              for dev in v:
+                  if dev["name"].startswith("iPhone"):
+                      print(dev["udid"]); sys.exit()
+          ')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices | grep "$UDID"
+
+      - name: Build (Debug, simulator)
+        run: |
+          xcodebuild build -project Kesef.xcodeproj -scheme Kesef -configuration Debug \
+            -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath dd \
+            CODE_SIGNING_ALLOWED=NO > build.log 2>&1 || { grep -E "error:" build.log | head -50; exit 1; }
+          tail -2 build.log
+
+      - name: Prepare simulator (Hebrew, clean status bar)
+        run: |
+          U=${{ steps.sim.outputs.udid }}
+          xcrun simctl boot "$U" || true
+          xcrun simctl bootstatus "$U" -b
+          xcrun simctl spawn "$U" defaults write -g AppleLanguages -array he
+          xcrun simctl spawn "$U" defaults write -g AppleLocale -string he_IL
+          xcrun simctl shutdown "$U"
+          xcrun simctl boot "$U"
+          xcrun simctl bootstatus "$U" -b
+          xcrun simctl status_bar "$U" override --time "9:41" --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3 || true
+          xcrun simctl install "$U" dd/Build/Products/Debug-iphonesimulator/Kesef.app
+
+      - name: Take screenshots
+        run: |
+          U=${{ steps.sim.outputs.udid }}
+          BID=il.chaverim4.kesef
+          mkdir -p shots
+          for mode in light dark; do
+            xcrun simctl ui "$U" appearance $mode
+            for s in home transactions pending review expense forecast more recurring budgets reports savings accounts automation; do
+              xcrun simctl terminate "$U" $BID 2>/dev/null || true
+              xcrun simctl launch "$U" $BID -KesefDemo -KesefScreen $s > /dev/null
+              sleep 7
+              xcrun simctl io "$U" screenshot "shots/$mode-$s.png" > /dev/null 2>&1
+              echo "$mode-$s"
+            done
+          done
+          ls -la shots
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: screenshots
+          path: |
+            shots
+            build.log
+          retention-days: 7

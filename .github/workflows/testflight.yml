@@ -1,0 +1,109 @@
+# בנייה, חתימה והעלאה ל-TestFlight — בלי Mac פרטי.
+# מופעל ידנית: GitHub ← Actions ← "TestFlight" ← Run workflow (או: gh workflow run testflight.yml)
+#
+# סודות נדרשים (Settings ← Secrets and variables ← Actions), הסבר ב-docs/TESTFLIGHT.md:
+#   APPLE_TEAM_ID      — מזהה הצוות (10 תווים) מ-developer.apple.com ← Membership
+#   ASC_KEY_ID         — Key ID של מפתח App Store Connect API
+#   ASC_ISSUER_ID      — Issuer ID מאותו מסך
+#   ASC_KEY_P8         — התוכן המלא של קובץ AuthKey_XXXX.p8
+name: TestFlight
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    env:
+      KEY_PATH: ${{ github.workspace }}/../AuthKey.p8
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check secrets exist
+        env:
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          KID: ${{ secrets.ASC_KEY_ID }}
+          ISS: ${{ secrets.ASC_ISSUER_ID }}
+          P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          missing=""
+          [ -z "$TEAM" ] && missing="$missing APPLE_TEAM_ID"
+          [ -z "$KID" ] && missing="$missing ASC_KEY_ID"
+          [ -z "$ISS" ] && missing="$missing ASC_ISSUER_ID"
+          [ -z "$P8" ] && missing="$missing ASC_KEY_P8"
+          if [ -n "$missing" ]; then echo "::error::Missing secrets:$missing (see docs/TESTFLIGHT.md)"; exit 1; fi
+
+      - name: Write API key file
+        env:
+          P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          printf '%s\n' "$P8" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Archive (cloud-managed signing)
+        run: |
+          xcodebuild archive \
+            -project Kesef.xcodeproj \
+            -scheme Kesef \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/Kesef.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
+            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            > archive.log 2>&1 || { grep -E "error:|warning: .*sign|requires a provisioning" archive.log | head -60; exit 1; }
+          tail -5 archive.log
+
+      - name: Export and upload to App Store Connect
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>${{ secrets.APPLE_TEAM_ID }}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Kesef.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
+            > export.log 2>&1 || { grep -iE "error|fail" export.log | head -60; exit 1; }
+          tail -5 export.log
+          echo "Uploaded build ${{ github.run_number }}. TestFlight processing takes ~10-30 minutes."
+
+      - name: Remove key file
+        if: always()
+        run: rm -f "$KEY_PATH"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: testflight-logs
+          path: |
+            archive.log
+            export.log
+          retention-days: 7

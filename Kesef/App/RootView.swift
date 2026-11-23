@@ -7,9 +7,24 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Query(filter: #Predicate<Entry> { $0.statusRaw == "pendingReview" }) private var pending: [Entry]
 
+    @Environment(\.modelContext) private var context
+
     var body: some View {
+        #if DEBUG
+        if let s = DemoMode.screen, DemoMode.standalone.contains(s) {
+            NavigationStack { DemoMode.standaloneView(s) }
+        } else {
+            main
+                .task { if DemoMode.isOn { DemoMode.applyNavigation(router: router, context: context) } }
+        }
+        #else
+        main
+        #endif
+    }
+
+    private var main: some View {
         @Bindable var router = router
-        ZStack {
+        return ZStack {
             TabView(selection: $router.selectedTab) {
                 NavigationStack { HomeView() }
                     .tabItem { Label("בית", systemImage: "house.fill") }
