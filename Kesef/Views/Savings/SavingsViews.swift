@@ -89,10 +89,10 @@ struct SavingsView: View {
         if !a.months.isEmpty {
             Chart(a.months) { m in
                 BarMark(x: .value("חודש", Fmt.shortMonth(m.monthStart)), y: .value("הכנסה", NSDecimalNumber(decimal: m.income.decimalValue).doubleValue))
-                    .foregroundStyle(by: .value("סוג חודש", m.strength?.label ?? (m.isComplete ? "רגיל" : "חודש נוכחי / חלקי")))
+                    .foregroundStyle(by: .value("סוג חודש", m.strength?.label ?? (m.isComplete ? MonthStrength.normal.label : "חודש חלקי")))
             }
-            .chartForegroundStyleScale(["חודש חלש": Theme.expense, "חודש רגיל": Theme.accent, "חודש חזק": Theme.income,
-                                        "רגיל": Theme.accent, "חודש נוכחי / חלקי": Color.gray])
+            .chartForegroundStyleScale([MonthStrength.weak.label: Theme.expense, MonthStrength.normal.label: Theme.forecast,
+                                        MonthStrength.strong.label: Theme.income, "חודש חלקי": Color.gray.opacity(0.6)])
             .frame(height: 180)
         }
         LabeledContent("חיובים קבועים בחודש") { MoneyText(money: a.fixedMonthly) }

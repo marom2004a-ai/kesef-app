@@ -57,12 +57,13 @@ jobs:
           U=${{ steps.sim.outputs.udid }}
           BID=il.chaverim4.kesef
           mkdir -p shots
+          xcrun simctl launch "$U" $BID -KesefDemo > /dev/null; sleep 15; xcrun simctl terminate "$U" $BID || true
           for mode in light dark; do
             xcrun simctl ui "$U" appearance $mode
             for s in home transactions pending review expense forecast more recurring budgets reports savings accounts automation; do
               xcrun simctl terminate "$U" $BID 2>/dev/null || true
               xcrun simctl launch "$U" $BID -KesefDemo -KesefScreen $s > /dev/null
-              sleep 7
+              sleep 10
               xcrun simctl io "$U" screenshot "shots/$mode-$s.png" > /dev/null 2>&1
               echo "$mode-$s"
             done

@@ -41,13 +41,13 @@ struct HomeView: View {
                 forecastCard(d)
                 if let owed = d.partnerOwed { partnerCard(owed) }
                 upcomingCard
-                Color.clear.frame(height: 80)
+                Color.clear.frame(height: 8)
             }
             .padding(.horizontal)
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("הכסף שלי")
-        .overlay(alignment: .bottom) { quickAddBar }
+        .safeAreaInset(edge: .bottom, spacing: 0) { quickAddBar }
         .sheet(isPresented: $showAddAccount) { NavigationStack { AccountEditorView(account: nil) } }
     }
 
@@ -193,23 +193,28 @@ struct HomeView: View {
         }.card()
     }
 
+    /// פס הוספה מהירה קבוע מעל סרגל הלשוניות — לא מכסה תוכן (safeAreaInset)
     private var quickAddBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
+            Button { router.showQuickAdd = .expense } label: {
+                Text("+ הוצאה")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+            }
+            .buttonStyle(.borderedProminent)
+
             Button { router.showQuickAdd = .income } label: {
-                Label("הכנסה", systemImage: "plus").frame(maxWidth: .infinity, minHeight: 54)
+                Text("+ הכנסה")
+                    .font(.headline)
+                    .fixedSize()
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: 50)
             }
             .buttonStyle(.bordered)
             .tint(Theme.income)
-            Button { router.showQuickAdd = .expense } label: {
-                Label("+ הוצאה", systemImage: "minus").labelStyle(.titleOnly)
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 54)
-            }
-            .buttonStyle(.borderedProminent)
-            .frame(maxWidth: .infinity)
-            .layoutPriority(1)
         }
         .padding(.horizontal)
-        .padding(.bottom, 8)
+        .padding(.vertical, 8)
+        .background(.bar)
     }
 }

@@ -239,10 +239,12 @@ struct PendingReviewView: View {
             .buttonStyle(.borderedProminent)
             .disabled(amount == nil || amount?.isZero == true || title.trimmingCharacters(in: .whitespaces).isEmpty)
             HStack {
-                Button(editing ? "סיום עריכה" : "עריכה") { withAnimation { editing.toggle() } }
-                    .frame(maxWidth: .infinity)
-                Button("דחה", role: .destructive) { showReject = true }
-                    .frame(maxWidth: .infinity)
+                Button { withAnimation { editing.toggle() } } label: {
+                    Text(editing ? "סיום עריכה" : "עריכה").frame(maxWidth: .infinity, minHeight: 40)
+                }
+                Button(role: .destructive) { showReject = true } label: {
+                    Text("דחה").frame(maxWidth: .infinity, minHeight: 40)
+                }
             }
             .buttonStyle(.bordered)
         }
