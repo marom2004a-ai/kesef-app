@@ -69,12 +69,15 @@ struct HomeView: View {
         let missing = inPeriod.filter { $0.receiptImage == nil }.count
         let streak = Streaks.receipts(hasReceiptNewestFirst: bizExpenses.prefix(60).map { $0.receiptImage != nil })
 
+        let since = IncomeReceipts.since
+        let awaitingIncome = entries.filter { IncomeReceipts.isAwaiting($0, since: since) }.count
         let share: Money? = (isBusiness && partnerBP > 0 && current.isPositive) ? current.multiplied(byBasisPoints: partnerBP) : nil
         let saved = monthSummary.net
         let companion = CompanionAdvisor.message(CompanionInput(
             isBusiness: isBusiness, pendingCount: d.pendingReviewCount, missingReceipts: missing, receiptStreak: streak,
             changeBP: MonthlySeries.changeBP(current: current, previous: previous), isRecordMonth: MonthlySeries.isRecord(series),
-            savedThisMonth: saved, savingsTarget: Money(minorUnits: Int64(savingsMinor)), dayOfMonth: cal.day(.now)))
+            savedThisMonth: saved, savingsTarget: Money(minorUnits: Int64(savingsMinor)), dayOfMonth: cal.day(.now),
+            incomesAwaitingReceipt: awaitingIncome))
 
         return Model(dashboard: d, series: series, headline: isBusiness ? current : d.safeToSpend,
                      changeBP: MonthlySeries.changeBP(current: current, previous: previous), isRecord: MonthlySeries.isRecord(series),
@@ -98,7 +101,10 @@ struct HomeView: View {
                 }
                 heroCard(m)
                 if m.dashboard.pendingReviewCount > 0 { pendingCard(m.dashboard.pendingReviewCount) }
-                NavigationLink { AdvisorChatView() } label: { CompanionCard(message: m.companion) }
+                NavigationLink {
+                    if isBusiness && m.companion.text.contains("קבלה") && m.companion.text.contains("הכנס") { ReceiptsHubView() }
+                    else { AdvisorChatView() }
+                } label: { CompanionCard(message: m.companion) }
                     .buttonStyle(.plain)
                 HStack(spacing: 10) {
                     if isBusiness {

@@ -25,7 +25,7 @@ public enum MorningDocType: Int, CaseIterable, Sendable, Identifiable {
 }
 
 public enum MorningPaymentMethod: String, CaseIterable, Sendable, Identifiable {
-    case cash, bit, paybox, bankTransfer, creditCard, applePay, other
+    case cash, bit, paybox, bankTransfer, cheque, creditCard, applePay, other
     public var id: String { rawValue }
     public var label: String {
         switch self {
@@ -33,15 +33,17 @@ public enum MorningPaymentMethod: String, CaseIterable, Sendable, Identifiable {
         case .bit: return "ביט"
         case .paybox: return "PayBox"
         case .bankTransfer: return "העברה בנקאית"
+        case .cheque: return "צ׳ק"
         case .creditCard: return "כרטיס אשראי"
         case .applePay: return "Apple Pay"
         case .other: return "אחר"
         }
     }
-    /// PaymentGroup: 1 מזומן, 3 אשראי, 4 העברה, 10 אפליקציית תשלום, 11 אחר
+    /// PaymentGroup: 1 מזומן, 2 צ׳ק, 3 אשראי, 4 העברה, 10 אפליקציית תשלום, 11 אחר
     var paymentType: Int {
         switch self {
         case .cash: return 1
+        case .cheque: return 2
         case .creditCard: return 3
         case .bankTransfer: return 4
         case .bit, .paybox, .applePay: return 10
@@ -63,10 +65,31 @@ public enum MorningPaymentMethod: String, CaseIterable, Sendable, Identifiable {
         case .cash: return .cash
         case .bit, .paybox: return .bit
         case .bankTransfer: return .bankTransfer
+        case .cheque: return .check
         case .creditCard: return .creditCard
         case .applePay: return .applePay
         case .other: return .other
         }
+    }
+}
+
+extension MorningPaymentMethod {
+    /// האם יש פרטי בנק לאמצעי הזה (צ׳ק / העברה)
+    public var hasBankDetails: Bool { self == .cheque || self == .bankTransfer }
+}
+
+/// פרטי בנק לתשלום בצ׳ק או בהעברה בנקאית — מופיעים על הקבלה
+public struct PaymentBankDetails: Sendable, Hashable {
+    public var bankName: String
+    public var bankBranch: String
+    public var bankAccount: String
+    /// מספר הצ׳ק (רק בצ׳ק)
+    public var chequeNumber: String
+    /// אסמכתא של ההעברה / הצ׳ק — מופיעה בהערות המסמך
+    public var reference: String
+    public init(bankName: String = "", bankBranch: String = "", bankAccount: String = "", chequeNumber: String = "", reference: String = "") {
+        self.bankName = bankName; self.bankBranch = bankBranch; self.bankAccount = bankAccount; self.chequeNumber = chequeNumber
+        self.reference = reference
     }
 }
 
@@ -84,16 +107,18 @@ public struct MorningDocumentDraft: Sendable {
     public var payment: MorningPaymentMethod
     public var date: Date
     public var remarks: String?
+    public var bankDetails: PaymentBankDetails?
 
     public init(type: MorningDocType, clientName: String, clientEmail: String? = nil, clientPhone: String? = nil,
                 clientTaxId: String? = nil, itemDescription: String, amountIncludingVAT: Money, vatExempt: Bool = false,
-                payment: MorningPaymentMethod, date: Date, remarks: String? = nil) {
+                payment: MorningPaymentMethod, date: Date, remarks: String? = nil, bankDetails: PaymentBankDetails? = nil) {
+        self.bankDetails = bankDetails
         self.type = type; self.clientName = clientName; self.clientEmail = clientEmail; self.clientPhone = clientPhone
         self.clientTaxId = clientTaxId; self.itemDescription = itemDescription; self.amountIncludingVAT = amountIncludingVAT
         self.vatExempt = vatExempt; self.payment = payment; self.date = date; self.remarks = remarks
     }
 
-    public enum ValidationError: Error, Equatable { case missingClient, missingDescription, invalidAmount, invalidEmail }
+    public enum ValidationError: Error, Equatable { case missingClient, missingDescription, invalidAmount, invalidEmail, missingChequeNumber }
 
     public func validate() throws {
         if clientName.trimmingCharacters(in: .whitespaces).isEmpty { throw ValidationError.missingClient }
@@ -101,6 +126,8 @@ public struct MorningDocumentDraft: Sendable {
         if !amountIncludingVAT.isPositive { throw ValidationError.invalidAmount }
         if let e = clientEmail?.trimmingCharacters(in: .whitespaces), !e.isEmpty,
            e.range(of: #"^[^@\s]+@[^@\s]+\.[^@\s]+$"#, options: .regularExpression) == nil { throw ValidationError.invalidEmail }
+        if type.recordsPayment && payment == .cheque,
+           (bankDetails?.chequeNumber.trimmingCharacters(in: .whitespaces) ?? "").isEmpty { throw ValidationError.missingChequeNumber }
     }
 
     static func isoDay(_ d: Date, _ cal: FinanceCalendar) -> String {
@@ -137,9 +164,23 @@ public struct MorningDocumentDraft: Sendable {
         if type.recordsPayment {
             var p: [String: Any] = ["date": Self.isoDay(date, cal), "type": payment.paymentType, "price": price, "currency": "ILS"]
             if let app = payment.appType { p["appType"] = app }
+            if payment.hasBankDetails, let b = bankDetails {
+                func put(_ key: String, _ v: String) {
+                    let t = v.trimmingCharacters(in: .whitespaces)
+                    if !t.isEmpty { p[key] = t }
+                }
+                put("bankName", b.bankName)
+                put("bankBranch", b.bankBranch)
+                put("bankAccount", b.bankAccount)
+                if payment == .cheque { put("chequeNum", b.chequeNumber) }
+            }
             body["payment"] = [p]
         }
-        if let r = remarks?.trimmingCharacters(in: .whitespaces), !r.isEmpty { body["remarks"] = r }
+        var notes: [String] = []
+        if type.recordsPayment, payment.hasBankDetails,
+           let ref = bankDetails?.reference.trimmingCharacters(in: .whitespaces), !ref.isEmpty { notes.append("אסמכתא: \(ref)") }
+        if let r = remarks?.trimmingCharacters(in: .whitespaces), !r.isEmpty { notes.append(r) }
+        if !notes.isEmpty { body["remarks"] = notes.joined(separator: "\n") }
         return body
     }
 }

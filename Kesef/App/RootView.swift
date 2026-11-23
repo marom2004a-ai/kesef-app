@@ -41,8 +41,14 @@ struct RootView: View {
                     .tag(AppTab.more)
             }
             .sheet(item: $router.showQuickAdd) { kind in
-                NavigationStack { QuickEntryView(kind: kind == .income ? .income : .expense) }
-                    .presentationDetents([.large])
+                NavigationStack {
+                    // הכנסה בעסק = הכנסה + קבלה; באישי = "הכנסה מהעסק"
+                    if kind == .income && UserDefaults.standard.string(forKey: "homeSpace") != Scope.personal.rawValue {
+                        BusinessIncomeView()
+                    } else {
+                        QuickEntryView(kind: kind == .income ? .income : .expense)
+                    }
+                }
             }
             .sheet(isPresented: $router.showPending) {
                 NavigationStack {

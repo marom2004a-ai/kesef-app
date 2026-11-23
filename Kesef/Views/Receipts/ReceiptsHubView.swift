@@ -10,6 +10,7 @@ struct ReceiptsHubView: View {
     @AppStorage(AppSettings.Key.vatRateBP) private var rateBP = 1800
     @AppStorage(AppSettings.Key.vatPeriodMonths) private var periodMonths = 2
     @State private var showCapture = false
+    @State private var showIncome = false
 
     private let cal = FinanceCalendar.israel
 
@@ -27,12 +28,19 @@ struct ReceiptsHubView: View {
             VStack(spacing: 14) {
                 periodCard(period: period, report: report, vatPayable: st.vatPayable, due: st.dueDate, expenseCount: expenseCount)
 
+                let since = IncomeReceipts.since
+                let awaiting = business.filter { IncomeReceipts.isAwaiting($0, since: since) }.sorted { $0.date > $1.date }
+                if !awaiting.isEmpty { AwaitingReceiptsSection(entries: awaiting) }
+
                 HStack(spacing: 10) {
                     Button { showCapture = true } label: {
                         HubTileLabel(title: "צילום קבלת הוצאה", symbol: "camera.fill", subtitle: "סריקה וחיתוך אוטומטי", highlighted: true)
                     }
                     .buttonStyle(.plain)
-                    HubTile(title: "הפקת קבלה ללקוח", symbol: "doc.badge.plus", subtitle: "דרך morning") { IssueReceiptView() }
+                    Button { showIncome = true } label: {
+                        HubTileLabel(title: "הכנסה + קבלה", symbol: "doc.badge.plus", subtitle: "רישום והפקה יחד")
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
@@ -50,6 +58,7 @@ struct ReceiptsHubView: View {
         .kesefScreen()
         .navigationTitle("קבלות ודוחות")
         .sheet(isPresented: $showCapture) { NavigationStack { ExpenseReceiptCaptureView() } }
+        .sheet(isPresented: $showIncome) { NavigationStack { BusinessIncomeView() } }
         .onAppear { celebrateIfComplete(report: report, period: period, expenseCount: expenseCount) }
     }
 

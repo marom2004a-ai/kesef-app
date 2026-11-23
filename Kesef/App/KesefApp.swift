@@ -11,6 +11,7 @@ struct KesefApp: App {
         AppSettings.registerDefaults()
         _lock = State(initialValue: AppLock())
         Self.applyAppearance()
+        IncomeReceipts.startTrackingIfNeeded()
     }
     @Environment(\.scenePhase) private var scenePhase
 

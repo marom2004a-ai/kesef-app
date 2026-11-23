@@ -44,6 +44,34 @@ final class MorningDocumentTests: XCTestCase {
         XCTAssertEqual(pay(.applePay)["appType"] as? Int, 6)
     }
 
+    func testChequeAndTransferBankDetails() throws {
+        var d = draft(payment: .cheque)
+        XCTAssertThrowsError(try d.validate()) { XCTAssertEqual($0 as? MorningDocumentDraft.ValidationError, .missingChequeNumber) }
+        d.bankDetails = PaymentBankDetails(bankName: "לאומי", bankBranch: "925", bankAccount: "123456", chequeNumber: " 10002 ")
+        XCTAssertNoThrow(try d.validate())
+        let p = (d.requestBody(calendar: cal)["payment"] as! [[String: Any]])[0]
+        XCTAssertEqual(p["type"] as? Int, 2)
+        XCTAssertEqual(p["bankName"] as? String, "לאומי")
+        XCTAssertEqual(p["bankBranch"] as? String, "925")
+        XCTAssertEqual(p["bankAccount"] as? String, "123456")
+        XCTAssertEqual(p["chequeNum"] as? String, "10002")
+        XCTAssertEqual(MorningPaymentMethod.cheque.ledgerMethod, .check)
+
+        var t = draft(payment: .bankTransfer)
+        t.bankDetails = PaymentBankDetails(bankName: "הפועלים", bankBranch: "", bankAccount: "777", chequeNumber: "999", reference: "55512")
+        t.remarks = "תודה"
+        XCTAssertNoThrow(try t.validate(), "בהעברה הפרטים לא חובה")
+        let tp = (t.requestBody(calendar: cal)["payment"] as! [[String: Any]])[0]
+        XCTAssertEqual(tp["type"] as? Int, 4)
+        XCTAssertEqual(tp["bankName"] as? String, "הפועלים")
+        XCTAssertNil(tp["bankBranch"], "שדה ריק לא נשלח")
+        XCTAssertNil(tp["chequeNum"], "מספר צ׳ק רק בצ׳ק")
+        XCTAssertEqual(t.requestBody(calendar: cal)["remarks"] as? String, "אסמכתא: 55512\nתודה")
+        // באמצעי אחר פרטי בנק לא נשלחים
+        var c = draft(payment: .cash); c.bankDetails = PaymentBankDetails(bankName: "x")
+        XCTAssertNil((c.requestBody(calendar: cal)["payment"] as! [[String: Any]])[0]["bankName"])
+    }
+
     func testInvoiceWithoutPaymentRows() {
         let b = draft(.taxInvoice).requestBody(calendar: cal)
         XCTAssertEqual(b["type"] as? Int, 305)

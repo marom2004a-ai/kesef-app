@@ -49,5 +49,22 @@ final class CompanionTests: XCTestCase {
         XCTAssertEqual(CompanionAdvisor.message(.init(isBusiness: true, changeBP: -3000, dayOfMonth: 25)).mood, .calm)
         XCTAssertTrue(CompanionAdvisor.message(.init(isBusiness: true, receiptStreak: 7)).text.contains("7"))
         XCTAssertEqual(CompanionAdvisor.message(.init(isBusiness: true)).mood, .calm)
+        // הכנסה בלי קבלה קודמת לקבלות הוצאה חסרות, ולא מופיעה בצד האישי
+        XCTAssertTrue(CompanionAdvisor.message(.init(isBusiness: true, missingReceipts: 3, incomesAwaitingReceipt: 2)).text.contains("2 הכנסות"))
+        XCTAssertFalse(CompanionAdvisor.message(.init(isBusiness: false, incomesAwaitingReceipt: 2)).text.contains("הכנס"))
+    }
+
+    func testOwnerDrawIsPersonalIncomeOnly() {
+        let biz = UUID(), personal = UUID()
+        let draw = EntrySnapshot(kind: .ownerDraw, amount: ILS(4000), date: D(2026, 11, 10), title: "הכנסה מהעסק", scope: .business,
+                                 accountID: biz, toAccountID: personal)
+        let entries = [draw, income(ILS(11800), D(2026, 11, 3))]
+        let month = cal.monthRange(D(2026, 11, 15))
+        XCTAssertEqual(BalanceEngine.summary(entries: entries, in: month, scope: .personal).income, ILS(4000))
+        XCTAssertEqual(BalanceEngine.summary(entries: entries, in: month, scope: .business).income, ILS(11800))
+        XCTAssertEqual(BalanceEngine.summary(entries: entries, in: month).income, ILS(11800))
+        // לא משפיע על רווח העסק
+        let st = VatEngine.statement(entries: entries, period: month, settings: vat, calendar: cal)
+        XCTAssertEqual(st.profitBeforeTax, ILS(10000))
     }
 }

@@ -11,6 +11,8 @@ struct QuickPrefill {
 }
 
 /// הוספה מהירה: מקלדת מספרים גדולה → קטגוריה → שמירה. שתי לחיצות.
+/// הכנסה כאן היא תמיד "הכנסה מהעסק" לצד האישי (משיכה מחשבון העסק) — בלי פירוט על מה.
+/// הכנסה עסקית נרשמת במסך המשולב עם הקבלה (BusinessIncomeView).
 struct QuickEntryView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -24,6 +26,7 @@ struct QuickEntryView: View {
     @State private var scope: Scope
     @State private var categoryID: UUID?
     @State private var accountID: UUID?
+    @State private var fromAccountID: UUID?
     @State private var showFull = false
     @State private var error: String?
     @State private var saved = 0
@@ -32,7 +35,25 @@ struct QuickEntryView: View {
     init(kind: EntryKind) {
         self.kind = kind
         let home = Scope(rawValue: UserDefaults.standard.string(forKey: "homeSpace") ?? "") ?? .business
-        _scope = State(initialValue: kind == .income ? .business : home)
+        _scope = State(initialValue: kind == .income ? .personal : home)
+    }
+
+    /// "הכנסה מהעסק" — משיכה מחשבון העסק לאישי
+    private var isDraw: Bool { kind == .income }
+    @AppStorage(AppSettings.Key.partnerShareBP) private var partnerBP = 0
+
+    /// הצעה: החלק שלי מרווח החודש הקודם, פחות מה שכבר הועבר אליי החודש
+    private var drawSuggestion: (month: Date, share: Money, drawn: Money, suggested: Money) {
+        let cal = FinanceCalendar.israel
+        let prevStart = cal.addMonths(-1, to: cal.startOfMonth(.now))
+        let snaps = recent.map(\.snapshot)
+        let st = VatEngine.statement(entries: snaps, period: prevStart..<cal.startOfMonth(.now), settings: AppSettings.vat,
+                                     deductibleBP: Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.vatDeductibleBP) }), calendar: cal)
+        let share = st.profitBeforeTax.isPositive ? st.profitBeforeTax.multiplied(byBasisPoints: 10_000 - partnerBP) : .zero
+        let month = cal.monthRange(.now)
+        let drawn = snaps.filter { $0.kind == .ownerDraw && $0.status == .confirmed && month.contains($0.date) }.map(\.amount).sum()
+        let left = share - drawn
+        return (prevStart, share, drawn, left.isPositive ? left : .zero)
     }
 
     private var amount: Money? { AmountParser.parse(amountText)?.absolute }
@@ -50,13 +71,99 @@ struct QuickEntryView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Picker("סיווג", selection: $scope) {
-                Text("🐾 עסקי").tag(Scope.business)
-                Text("👤 אישי").tag(Scope.personal)
+            if !isDraw {
+                Picker("סיווג", selection: $scope) {
+                    Text("🐾 עסקי").tag(Scope.business)
+                    Text("👤 אישי").tag(Scope.personal)
+                }
+                .pickerStyle(.segmented)
             }
-            .pickerStyle(.segmented)
 
             amountDisplay
+
+            if isDraw { drawSection } else { expenseSection }
+
+            if let error { Text(error).font(.footnote).foregroundStyle(Theme.expense) }
+
+            Spacer(minLength: 0)
+            NumberPad(text: $amountText)
+
+            Button(action: save) {
+                Text(isIncome ? "שמירת הכנסה" : "שמירת הוצאה").frame(maxWidth: .infinity, minHeight: 30)
+            }
+            .buttonStyle(.gold)
+            .disabled(!(amount?.isPositive ?? false))
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 8)
+        .background(Theme.background.ignoresSafeArea())
+        .navigationTitle(isDraw ? "הכנסה מהעסק" : "הוצאה חדשה")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("ביטול") { dismiss() } }
+            if !isDraw { ToolbarItem(placement: .primaryAction) { Button("עוד פרטים") { showFull = true } } }
+        }
+        .navigationDestination(isPresented: $showFull) {
+            EntryEditorView(kind: kind, prefill: QuickPrefill(amountText: amountText, title: title, scope: scope,
+                                                              categoryID: categoryID, accountID: accountID)) { dismiss() }
+        }
+        .onAppear(perform: restoreAccount)
+        .onChange(of: scope) { _, _ in
+            if let c = categories.first(where: { $0.id == categoryID }), c.scope != scope { categoryID = nil }
+            restoreAccount()
+        }
+        .sensoryFeedback(.success, trigger: saved)
+        .sensoryFeedback(.error, trigger: shake)
+    }
+
+    private var drawSection: some View {
+        let s = drawSuggestion
+        return VStack(spacing: 10) {
+            if s.share.isPositive {
+                Button {
+                    amountText = MoneyFormat.editString(s.suggested.isPositive ? s.suggested : s.share)
+                } label: {
+                    HStack {
+                        Image(systemName: "wand.and.stars").foregroundStyle(Theme.gold)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("החלק שלך מהרווח של \(Fmt.monthYear(s.month)): \(MoneyFormat.string(s.share))")
+                                .font(.subheadline.weight(.semibold))
+                            Text(s.drawn.isPositive ? "כבר הועבר החודש \(MoneyFormat.string(s.drawn)) · לחץ למילוי היתרה" : "לחץ למילוי הסכום")
+                                .font(.caption).foregroundStyle(Theme.mutedText)
+                        }
+                        Spacer()
+                    }
+                    .padding(12)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            HStack(spacing: 10) {
+                accountMenu("מחשבון העסק", selection: $fromAccountID, scope: .business)
+                Image(systemName: "arrow.left").foregroundStyle(Theme.mutedText)
+                accountMenu("לחשבון האישי", selection: $accountID, scope: .personal)
+            }
+            Text("נרשם באישי כ״הכנסה מהעסק״ — בלי פירוט, ולא משנה את רווח העסק.")
+                .font(.caption2).foregroundStyle(Theme.mutedText)
+        }
+    }
+
+    private func accountMenu(_ title: String, selection: Binding<UUID?>, scope: Scope) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.caption2).foregroundStyle(Theme.mutedText)
+            Picker(title, selection: selection) {
+                Text("לא נבחר").tag(UUID?.none)
+                ForEach(accounts.filter { !$0.isArchived && $0.scope == scope }) { a in Text(a.name).tag(Optional(a.id)) }
+            }
+            .pickerStyle(.menu).labelsHidden()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var expenseSection: some View {
+        VStack(spacing: 14) {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -92,38 +199,7 @@ struct QuickEntryView: View {
                 .labelsHidden()
                 .frame(maxWidth: 140)
             }
-
-            if let error { Text(error).font(.footnote).foregroundStyle(Theme.expense) }
-
-            Spacer(minLength: 0)
-            NumberPad(text: $amountText)
-
-            Button(action: save) {
-                Text(isIncome ? "שמירת הכנסה" : "שמירת הוצאה").frame(maxWidth: .infinity, minHeight: 30)
-            }
-            .buttonStyle(.gold)
-            .disabled(!(amount?.isPositive ?? false))
         }
-        .padding(.horizontal)
-        .padding(.bottom, 8)
-        .background(Theme.background.ignoresSafeArea())
-        .navigationTitle(isIncome ? "הכנסה חדשה" : "הוצאה חדשה")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("ביטול") { dismiss() } }
-            ToolbarItem(placement: .primaryAction) { Button("עוד פרטים") { showFull = true } }
-        }
-        .navigationDestination(isPresented: $showFull) {
-            EntryEditorView(kind: kind, prefill: QuickPrefill(amountText: amountText, title: title, scope: scope,
-                                                              categoryID: categoryID, accountID: accountID)) { dismiss() }
-        }
-        .onAppear(perform: restoreAccount)
-        .onChange(of: scope) { _, _ in
-            if let c = categories.first(where: { $0.id == categoryID }), c.scope != scope { categoryID = nil }
-            restoreAccount()
-        }
-        .sensoryFeedback(.success, trigger: saved)
-        .sensoryFeedback(.error, trigger: shake)
     }
 
     private var amountDisplay: some View {
@@ -146,6 +222,13 @@ struct QuickEntryView: View {
     }
 
     private func restoreAccount() {
+        if isDraw {
+            if fromAccountID == nil { fromAccountID = accounts.first { !$0.isArchived && $0.scope == .business && $0.kind == .businessBank }?.id
+                ?? accounts.first { !$0.isArchived && $0.scope == .business }?.id }
+            if accountID == nil { accountID = accounts.first { !$0.isArchived && $0.scope == .personal && $0.kind == .bank }?.id
+                ?? accounts.first { !$0.isArchived && $0.scope == .personal }?.id }
+            return
+        }
         if let raw = UserDefaults.standard.string(forKey: lastAccountKey), let id = UUID(uuidString: raw),
            accounts.contains(where: { $0.id == id && !$0.isArchived }) {
             accountID = id
@@ -156,6 +239,20 @@ struct QuickEntryView: View {
 
     private func save() {
         guard let amount, amount.isPositive else { shake += 1; return }
+        if isDraw {
+            let e = Entry(kind: .ownerDraw, status: .confirmed, amount: amount, date: .now, title: "הכנסה מהעסק", scope: .personal)
+            e.accountID = fromAccountID
+            e.toAccountID = accountID
+            e.confirmedAt = .now
+            context.insert(e)
+            do {
+                try context.save()
+                saved += 1
+                Task { await AppLifecycle.refresh() }
+                dismiss()
+            } catch { self.error = "השמירה נכשלה: \(error.localizedDescription)" }
+            return
+        }
         let cat = categories.first { $0.id == categoryID }
         let cleanTitle = title.trimmingCharacters(in: .whitespaces)
         let e = Entry(kind: kind, status: .confirmed, amount: amount, date: .now,

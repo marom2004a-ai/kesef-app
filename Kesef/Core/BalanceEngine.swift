@@ -72,6 +72,11 @@ public enum BalanceEngine {
     public static func summary(entries: [EntrySnapshot], in period: Range<Date>, scope: Scope? = nil) -> PeriodSummary {
         var s = PeriodSummary()
         for e in entries where e.status == .confirmed && period.contains(e.date) {
+            // משיכה מהעסק: בצד האישי זו הכנסה ("הכנסה מהעסק"); בעסק ובסה״כ — העברה פנימית, לא רווח ולא הוצאה
+            if e.kind == .ownerDraw {
+                if scope == .personal { s.income += e.amount }
+                continue
+            }
             if let scope, e.scope != scope { continue }
             switch e.kind {
             case .income: s.income += e.amount

@@ -65,6 +65,8 @@ public struct CompanionInput: Sendable {
     public var isBusiness: Bool
     public var pendingCount: Int = 0
     public var missingReceipts: Int = 0
+    /// הכנסות עסקיות שעוד לא הופקה להן קבלה
+    public var incomesAwaitingReceipt: Int = 0
     public var receiptStreak: Int = 0
     /// שינוי ברווח (עסקי) או בנטו (אישי) מול החודש הקודם, בנקודות בסיס
     public var changeBP: Int?
@@ -74,8 +76,10 @@ public struct CompanionInput: Sendable {
     public var dayOfMonth: Int = 15
 
     public init(isBusiness: Bool, pendingCount: Int = 0, missingReceipts: Int = 0, receiptStreak: Int = 0, changeBP: Int? = nil,
-                isRecordMonth: Bool = false, savedThisMonth: Money = .zero, savingsTarget: Money = .zero, dayOfMonth: Int = 15) {
+                isRecordMonth: Bool = false, savedThisMonth: Money = .zero, savingsTarget: Money = .zero, dayOfMonth: Int = 15,
+                incomesAwaitingReceipt: Int = 0) {
         self.isBusiness = isBusiness; self.pendingCount = pendingCount; self.missingReceipts = missingReceipts
+        self.incomesAwaitingReceipt = incomesAwaitingReceipt
         self.receiptStreak = receiptStreak; self.changeBP = changeBP; self.isRecordMonth = isRecordMonth
         self.savedThisMonth = savedThisMonth; self.savingsTarget = savingsTarget; self.dayOfMonth = dayOfMonth
     }
@@ -88,6 +92,11 @@ public enum CompanionAdvisor {
             return .init(mood: .alert, text: i.pendingCount == 1
                 ? "יש רכישה אחת שמחכה לאישור שלך. שתי שניות וסיימנו!"
                 : "יש \(i.pendingCount) רכישות שמחכות לאישור. בוא נסדר אותן!")
+        }
+        if i.isBusiness && i.incomesAwaitingReceipt > 0 {
+            return .init(mood: .alert, text: i.incomesAwaitingReceipt == 1
+                ? "יש הכנסה אחת שעוד לא הופקה לה קבלה. נפיק?"
+                : "יש \(i.incomesAwaitingReceipt) הכנסות שמחכות לקבלה. נפיק?")
         }
         if i.isBusiness && i.missingReceipts > 0 {
             return .init(mood: .alert, text: i.missingReceipts == 1
