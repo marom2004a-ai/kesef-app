@@ -41,6 +41,7 @@ struct HomeView: View {
                     }.card()
                 }
                 if d.pendingReviewCount > 0 { pendingCard(d.pendingReviewCount) }
+                advisorCard
                 monthGrid(d)
                 forecastCard(d)
                 if let owed = d.partnerOwed { partnerCard(owed) }
@@ -85,6 +86,22 @@ struct HomeView: View {
             }
         }
         .card()
+    }
+
+    private var advisorCard: some View {
+        NavigationLink { AdvisorChatView() } label: {
+            HStack {
+                Image(systemName: "sparkles").font(.title2).foregroundStyle(Theme.accent)
+                VStack(alignment: .leading) {
+                    Text("שאל את היועצת").font(.headline)
+                    Text("על מה אתה מוציא יותר מדי ואיך לחסוך").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.left").foregroundStyle(.tertiary)
+            }
+            .card()
+        }
+        .buttonStyle(.plain)
     }
 
     private func pendingCard(_ count: Int) -> some View {

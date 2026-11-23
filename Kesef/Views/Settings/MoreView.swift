@@ -4,6 +4,11 @@ import SwiftData
 struct MoreView: View {
     var body: some View {
         List {
+            Section {
+                NavigationLink { AdvisorChatView() } label: {
+                    Label("היועצת — שאל איך לחסוך", systemImage: "sparkles")
+                }
+            }
             Section("תכנון") {
                 NavigationLink { RecurringListView() } label: { Label("חיובים קבועים", systemImage: "repeat") }
                 NavigationLink { BudgetsView() } label: { Label("תקציבים", systemImage: "chart.pie") }

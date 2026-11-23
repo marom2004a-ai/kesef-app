@@ -60,7 +60,7 @@ jobs:
           xcrun simctl launch "$U" $BID -KesefDemo > /dev/null; sleep 15; xcrun simctl terminate "$U" $BID || true
           for mode in light dark; do
             xcrun simctl ui "$U" appearance $mode
-            for s in home transactions pending review expense forecast more vat import recurring budgets reports savings accounts automation; do
+            for s in home transactions pending review expense forecast more vat import advisor recurring budgets reports savings accounts automation; do
               xcrun simctl terminate "$U" $BID 2>/dev/null || true
               xcrun simctl launch "$U" $BID -KesefDemo -KesefScreen $s > /dev/null
               sleep 10
