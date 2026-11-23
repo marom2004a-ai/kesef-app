@@ -49,12 +49,19 @@ struct QuickEntryView: View {
                                     partnerShareBP: partnerBP)
     }
 
+    private var amount: Money? { AmountParser.parse(amountText)?.absolute }
+    private var isIncome: Bool { kind == .income }
+
     /// קטגוריות של הסיווג, הנפוצות ביותר קודם (לפי 60 התנועות האחרונות)
     private var chips: [Category] {
-        let list = categories.filter { $0.scope == scope && $0.isIncome == isIncome && !$0.isArchived && $0.parentID == nil }
+        let wantIncome = isIncome
+        let list = categories.filter { $0.scope == scope && $0.isIncome == wantIncome && !$0.isArchived && $0.parentID == nil }
         var use: [UUID: Int] = [:]
         for e in recent.prefix(60) { if let c = e.categoryID { use[c, default: 0] += 1 } }
-        return list.sorted { (use[$0.id] ?? 0, -$0.sortOrder) > (use[$1.id] ?? 0, -$1.sortOrder) }
+        return list.sorted { a, b in
+            let ua = use[a.id] ?? 0, ub = use[b.id] ?? 0
+            return ua != ub ? ua > ub : a.sortOrder < b.sortOrder
+        }
     }
 
     private var lastAccountKey: String { "quickAccount-\(scope.rawValue)-\(kind.rawValue)" }
