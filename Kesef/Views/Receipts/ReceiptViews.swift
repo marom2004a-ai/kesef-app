@@ -165,7 +165,15 @@ struct IssueReceiptView: View {
         Task {
             do {
                 let doc = try await MorningService.createDocument(d)
-                _ = try MorningService.recordIncome(context: context, draft: d, doc: doc, categoryID: categoryID, accountID: accountID)
+                let entry = try MorningService.recordIncome(context: context, draft: d, doc: doc, categoryID: categoryID, accountID: accountID)
+                let vat = (vatRegistered && !d.vatExempt) ? VatEngine.vatIncluded(in: d.amountIncludingVAT, rateBasisPoints: AppSettings.vat.rateBasisPoints) : .zero
+                let saved = IssuedDocument(externalID: doc.id, number: doc.number, type: d.type, clientName: d.clientName,
+                                           clientEmail: d.clientEmail ?? "", itemDescription: d.itemDescription,
+                                           amount: d.amountIncludingVAT, vat: vat, payment: d.payment, date: d.date,
+                                           url: doc.url, environment: env.rawValue)
+                saved.entryID = entry?.id
+                context.insert(saved)
+                try context.save()
                 created = doc
                 error = nil
                 await NotificationService.checkBudgets(context: context)

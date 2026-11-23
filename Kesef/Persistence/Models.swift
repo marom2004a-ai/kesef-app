@@ -220,10 +220,47 @@ final class CardAlias {
     }
 }
 
+/// מסמך שהופק דרך morning (או הדגמה) — הארכיון של הקבלות באפליקציה
+@Model
+final class IssuedDocument {
+    @Attribute(.unique) var id: UUID
+    /// המזהה ב-morning ("demo-..." בהדגמה)
+    var externalID: String
+    var number: Int
+    var typeRaw: Int
+    var clientName: String
+    var clientEmail: String
+    var itemDescription: String
+    var amountMinor: Int64
+    var vatMinor: Int64
+    var paymentRaw: String
+    var date: Date
+    var urlString: String?
+    var environmentRaw: String
+    var entryID: UUID?
+    var createdAt: Date
+
+    init(externalID: String, number: Int, type: MorningDocType, clientName: String, clientEmail: String,
+         itemDescription: String, amount: Money, vat: Money, payment: MorningPaymentMethod, date: Date,
+         url: URL?, environment: String) {
+        self.id = UUID(); self.externalID = externalID; self.number = number; self.typeRaw = type.rawValue
+        self.clientName = clientName; self.clientEmail = clientEmail; self.itemDescription = itemDescription
+        self.amountMinor = amount.minorUnits; self.vatMinor = vat.minorUnits; self.paymentRaw = payment.rawValue
+        self.date = date; self.urlString = url?.absoluteString; self.environmentRaw = environment; self.createdAt = .now
+    }
+
+    var amount: Money { Money(minorUnits: amountMinor) }
+    var vat: Money { Money(minorUnits: vatMinor) }
+    var type: MorningDocType? { MorningDocType(rawValue: typeRaw) }
+    var payment: MorningPaymentMethod? { MorningPaymentMethod(rawValue: paymentRaw) }
+    var url: URL? { urlString.flatMap(URL.init(string:)) }
+    var isReal: Bool { environmentRaw == "production" }
+}
+
 enum KesefSchema {
     static let models: [any PersistentModel.Type] = [
         Account.self, Category.self, Entry.self, RecurringRule.self, Budget.self,
-        SavingsGoal.self, ExpenseTemplate.self, CardAlias.self
+        SavingsGoal.self, ExpenseTemplate.self, CardAlias.self, IssuedDocument.self
     ]
 }
 

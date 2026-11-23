@@ -13,18 +13,45 @@ struct HomeView: View {
     @AppStorage(AppSettings.Key.monthlySavingsMinor) private var savingsMinor = 0
     @AppStorage(AppSettings.Key.partnerShareBP) private var partnerBP = 0
 
+    /// מרחב תצוגה: הכול / עסקי / אישי
+    @AppStorage("homeSpace") private var spaceRaw = "all"
+    private var space: Scope? { Scope(rawValue: spaceRaw) }
+
+    /// נתונים מסוננים לפי המרחב: חשבונות של המרחב, ותנועות של המרחב או שנוגעות בחשבונות שלו
+    private var scoped: (accounts: [AccountSnapshot], entries: [EntrySnapshot], rules: [RecurringSnapshot]) {
+        let accs = accounts.map(\.snapshot)
+        let ents = entries.map(\.snapshot)
+        let rls = rules.map(\.snapshot)
+        guard let space else { return (accs, ents, rls) }
+        let ids = Set(accs.filter { $0.scope == space }.map(\.id))
+        return (accs.filter { $0.scope == space },
+                ents.filter { $0.scope == space || $0.accountID.map { ids.contains($0) } == true || $0.toAccountID.map { ids.contains($0) } == true },
+                rls.filter { $0.scope == space })
+    }
+
     private var dashboard: DashboardSnapshot {
-        DashboardEngine.build(now: .now, accounts: accounts.map(\.snapshot), entries: entries.map(\.snapshot),
-                              recurring: rules.map(\.snapshot), partner: partnerBP > 0 ? AppSettings.partner : nil,
+        let s = scoped
+        return DashboardEngine.build(now: .now, accounts: s.accounts, entries: s.entries,
+                              recurring: s.rules, partner: (partnerBP > 0 && space != .personal) ? AppSettings.partner : nil,
                               monthlySavingsTarget: Money(minorUnits: Int64(savingsMinor)), reserve: Money(minorUnits: Int64(reserveMinor)),
-                              vat: vatRegistered ? AppSettings.vat : nil,
+                              vat: (vatRegistered && space != .personal) ? AppSettings.vat : nil,
                               vatDeductibleBP: Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.vatDeductibleBP) }))
+    }
+
+    private var spacePicker: some View {
+        Picker("מרחב", selection: $spaceRaw) {
+            Text("הכול").tag("all")
+            Text("🐾 עסקי").tag(Scope.business.rawValue)
+            Text("👤 אישי").tag(Scope.personal.rawValue)
+        }
+        .pickerStyle(.segmented)
     }
 
     var body: some View {
         let d = dashboard
         ScrollView {
             VStack(spacing: 14) {
+                spacePicker
                 if accounts.filter({ !$0.isArchived }).isEmpty {
                     EmptyStateView(symbol: "building.columns", title: "בוא נתחיל",
                                    message: "הוסף חשבון בנק, מזומן או כרטיס אשראי עם היתרה הנוכחית שלו. אחר כך אפשר להוסיף הכנסות והוצאות.",
@@ -41,9 +68,10 @@ struct HomeView: View {
                     }.card()
                 }
                 if d.pendingReviewCount > 0 { pendingCard(d.pendingReviewCount) }
+                if space != .personal {
                 HStack(spacing: 12) {
-                    NavigationLink { IssueReceiptView() } label: {
-                        Label("הפקת קבלה", systemImage: "doc.text.fill").font(.subheadline.weight(.semibold))
+                    NavigationLink { ReceiptsListView() } label: {
+                        Label("הקבלות שלי", systemImage: "doc.text.fill").font(.subheadline.weight(.semibold))
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.bordered)
@@ -52,6 +80,7 @@ struct HomeView: View {
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.bordered)
+                }
                 }
                 advisorCard
                 monthGrid(d)
@@ -63,7 +92,7 @@ struct HomeView: View {
             .padding(.horizontal)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle("הכסף שלי")
+        .navigationTitle(space == .business ? "העסק" : (space == .personal ? "הכסף שלי — אישי" : "הכסף שלי"))
         .safeAreaInset(edge: .bottom, spacing: 0) { quickAddBar }
         .sheet(isPresented: $showAddAccount) { NavigationStack { AccountEditorView(account: nil) } }
     }
@@ -197,15 +226,16 @@ struct HomeView: View {
         let cal = FinanceCalendar.israel
         let now = Date.now
         let end = cal.addDays(14, to: now)
-        let snapshots = entries.map(\.snapshot)
+        let sc = scoped
+        let snapshots = sc.entries
         var items: [(Date, String, Money, Bool)] = []
-        for r in rules where !r.isPaused {
-            for o in RecurrenceEngine.occurrences(of: r.snapshot, from: now, to: end, calendar: cal)
+        for r in sc.rules where !r.isPaused {
+            for o in RecurrenceEngine.occurrences(of: r, from: now, to: end, calendar: cal)
             where !RecurrenceEngine.isRecorded(rule: r.id, occurrence: o, entries: snapshots, calendar: cal) {
                 items.append((o, r.title, r.amount, r.kind == .income))
             }
         }
-        for e in entries where e.status == .planned && e.date >= cal.startOfDay(now) && e.date < end {
+        for e in sc.entries where e.status == .planned && e.date >= cal.startOfDay(now) && e.date < end {
             items.append((e.date, e.title, e.amount, e.kind == .income))
         }
         items.sort { $0.0 < $1.0 }

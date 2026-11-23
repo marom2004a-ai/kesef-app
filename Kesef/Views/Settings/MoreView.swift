@@ -8,8 +8,8 @@ struct MoreView: View {
                 NavigationLink { AdvisorChatView() } label: {
                     Label("היועצת — שאל איך לחסוך", systemImage: "sparkles")
                 }
-                NavigationLink { IssueReceiptView() } label: {
-                    Label("הפקת קבלה / חשבונית (morning)", systemImage: "doc.text.fill")
+                NavigationLink { ReceiptsListView() } label: {
+                    Label("הקבלות שלי — הפקה וארכיון", systemImage: "doc.text.fill")
                 }
             }
             Section("תכנון") {
