@@ -6,7 +6,7 @@ struct IssueReceiptView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Category.sortOrder) private var categories: [Category]
     @Query(sort: \Account.sortOrder) private var accounts: [Account]
-    @AppStorage(MorningService.envKey) private var envRaw = MorningService.Environment.sandbox.rawValue
+    @AppStorage(MorningService.envKey) private var envRaw = MorningService.Environment.demo.rawValue
     @AppStorage(AppSettings.Key.vatRegistered) private var vatRegistered = true
 
     @State private var docType: MorningDocType = .taxInvoiceReceipt
@@ -26,7 +26,7 @@ struct IssueReceiptView: View {
     @State private var created: MorningService.CreatedDocument?
     @State private var showSettings = false
 
-    private var env: MorningService.Environment { MorningService.Environment(rawValue: envRaw) ?? .sandbox }
+    private var env: MorningService.Environment { MorningService.Environment(rawValue: envRaw) ?? .demo }
     private var amount: Money? { AmountParser.parse(amountText)?.absolute }
     private var incomeCategories: [Category] { categories.filter { $0.scope == .business && $0.isIncome && !$0.isArchived } }
 
@@ -61,9 +61,10 @@ struct IssueReceiptView: View {
     private var form: some View {
         Form {
             Section {
-                Label(env == .sandbox ? "מצב ניסיון — המסמך לא אמיתי ולא נרשמת הכנסה" : "מצב אמיתי — מפיק מסמך מס רשמי",
-                      systemImage: env == .sandbox ? "testtube.2" : "checkmark.seal.fill")
-                    .foregroundStyle(env == .sandbox ? Theme.warning : Theme.income)
+                Label(env == .production ? "מצב אמיתי — מפיק מסמך מס רשמי"
+                      : (env == .demo ? "מצב הדגמה — שום דבר לא נשלח ולא נרשמת הכנסה" : "מצב ניסיון — המסמך לא אמיתי ולא נרשמת הכנסה"),
+                      systemImage: env == .production ? "checkmark.seal.fill" : "testtube.2")
+                    .foregroundStyle(env == .production ? Theme.income : Theme.warning)
                     .font(.subheadline.weight(.semibold))
                 Picker("סוג מסמך", selection: $docType) {
                     ForEach(MorningDocType.allCases) { Text($0.label).tag($0) }
@@ -130,7 +131,7 @@ struct IssueReceiptView: View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.seal.fill").font(.system(size: 56)).foregroundStyle(Theme.income)
             Text("\(docType.label) מס׳ \(doc.number) הופק").font(.title2.bold()).multilineTextAlignment(.center)
-            if env == .sandbox { Text("מסמך ניסיון — לא נרשמה הכנסה.").foregroundStyle(Theme.warning) }
+            if env != .production { Text("\(env == .demo ? "מסמך הדגמה" : "מסמך ניסיון") — לא נרשמה הכנסה.").foregroundStyle(Theme.warning) }
             else if docType.recordsPayment { Text("ההכנסה נרשמה בתנועות, כולל מע״מ וחלוקה עם השותף.").foregroundStyle(.secondary) }
             if doc.taxAuthorityError != 0 {
                 Label("רשות המסים החזירה שגיאה (\(doc.taxAuthorityError)) על מספר ההקצאה. בדוק את המסמך ב-morning.", systemImage: "exclamationmark.triangle")
@@ -184,7 +185,7 @@ struct IssueReceiptView: View {
 /// הגדרת חיבור ל-morning: סביבה + מפתחות API ב-Keychain + בדיקת חיבור
 struct MorningSettingsView: View {
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(MorningService.envKey) private var envRaw = MorningService.Environment.sandbox.rawValue
+    @AppStorage(MorningService.envKey) private var envRaw = MorningService.Environment.demo.rawValue
     @State private var clientId = ""
     @State private var secret = ""
     @State private var status: String?
@@ -192,18 +193,19 @@ struct MorningSettingsView: View {
     @State private var testing = false
     @State private var refresh = 0
 
-    private var env: MorningService.Environment { MorningService.Environment(rawValue: envRaw) ?? .sandbox }
+    private var env: MorningService.Environment { MorningService.Environment(rawValue: envRaw) ?? .demo }
 
     var body: some View {
         Form {
             Section {
                 Picker("סביבה", selection: $envRaw) {
-                    ForEach(MorningService.Environment.allCases) { Text($0 == .sandbox ? "ניסיון" : "אמיתי").tag($0.rawValue) }
+                    ForEach(MorningService.Environment.allCases) { Text($0.shortLabel).tag($0.rawValue) }
                 }
                 .pickerStyle(.segmented)
                 Text(env.label).font(.caption).foregroundStyle(.secondary)
-            } footer: { Text("מומלץ להתחיל בסביבת ניסיון. לכל סביבה יש מפתחות נפרדים.") }
+            } footer: { Text("הדגמה: לנסות את המסך בלי חשבון. ניסיון: מפתחות Sandbox של morning. אמיתי: מסמכי מס רשמיים. לכל סביבה מפתחות נפרדים.") }
 
+            if env != .demo {
             Section {
                 LabeledContent("מצב", value: MorningService.isConfigured(env) ? "מוגדר ✓" : "לא מוגדר")
                     .id(refresh)
@@ -237,8 +239,9 @@ struct MorningSettingsView: View {
                         status = "המפתחות נמחקו."; ok = false; refresh += 1
                     }
                 }
-            } header: { Text("מפתחות API (\(env == .sandbox ? "ניסיון" : "אמיתי"))") }
-              footer: { Text("ב-morning: הגדרות ← כלים למפתחים ← API ← יצירת מפתח. מעתיקים את ה-ID וה-Secret ומדביקים כאן. המפתחות נשמרים רק ב-Keychain של האייפון ונשלחים רק ל-morning.") }
+            } header: { Text("מפתחות API (\(env.shortLabel))") }
+              footer: { Text("ב-morning: הגדרות ← כלים למפתחים ← API ← יצירת מפתח. מעתיקים את ה-ID וה-Secret ומדביקים כאן. המפתחות נשמרים רק ב-Keychain של האייפון ונשלחים רק ל-morning. גישת API דורשת מנוי שכולל אותה.") }
+            }
 
             Section {
                 Link(destination: URL(string: "https://app.greeninvoice.co.il/settings/developers/api")!) {

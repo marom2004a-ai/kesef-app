@@ -6,9 +6,17 @@ import SwiftData
 @MainActor
 final class MorningService {
     enum Environment: String, CaseIterable, Identifiable {
-        case sandbox, production
+        /// הדגמה מקומית — בלי חשבון ובלי רשת. מסמך מדומה, לא נשלח לשום מקום.
+        case demo, sandbox, production
         var id: String { rawValue }
-        var label: String { self == .sandbox ? "ניסיון (Sandbox) — לא מפיק מסמכים אמיתיים" : "אמיתי (Production)" }
+        var label: String {
+            switch self {
+            case .demo: return "הדגמה — בלי חשבון morning, שום דבר לא נשלח"
+            case .sandbox: return "ניסיון (Sandbox) — מפתחות ניסיון, לא מפיק מסמכים אמיתיים"
+            case .production: return "אמיתי (Production) — מסמכי מס רשמיים"
+            }
+        }
+        var shortLabel: String { self == .demo ? "הדגמה" : (self == .sandbox ? "ניסיון" : "אמיתי") }
         var tokenURL: URL {
             URL(string: self == .sandbox ? "https://api.sandbox.morning.dev/idp/v1/oauth/token"
                                          : "https://api.morning.co/idp/v1/oauth/token")!
@@ -24,11 +32,24 @@ final class MorningService {
     static func secretAccount(_ e: Environment) -> String { "morningClientSecret-\(e.rawValue)" }
 
     static var environment: Environment {
-        get { Environment(rawValue: UserDefaults.standard.string(forKey: envKey) ?? "") ?? .sandbox }
+        get { Environment(rawValue: UserDefaults.standard.string(forKey: envKey) ?? "") ?? .demo }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: envKey) }
     }
+    /// רשת ניתנת להחלפה — לבדיקות עם תשובות מדומות
+    static var session: URLSession = .shared
+
+    /// לבדיקות בלבד: מקור מפתחות חלופי במקום ה-Keychain
+    static var credentialOverride: ((Environment) -> (id: String, secret: String)?)?
+
+    static func credentials(_ e: Environment) -> (id: String, secret: String)? {
+        if let o = credentialOverride { return o(e) }
+        guard let id = KeychainStore.get(idAccount(e)), let secret = KeychainStore.get(secretAccount(e)),
+              !id.isEmpty, !secret.isEmpty else { return nil }
+        return (id, secret)
+    }
+
     static func isConfigured(_ e: Environment = environment) -> Bool {
-        KeychainStore.get(idAccount(e))?.isEmpty == false && KeychainStore.get(secretAccount(e))?.isEmpty == false
+        e == .demo || credentials(e) != nil
     }
 
     struct CreatedDocument {
@@ -54,11 +75,13 @@ final class MorningService {
     }
 
     private static var cachedToken: (env: Environment, token: String, expires: Date)?
+    private static var demoCounter = 0
+    static func resetForTests() { cachedToken = nil; demoCounter = 0 }
 
     private static func accessToken(_ env: Environment) async throws -> String {
         if let c = cachedToken, c.env == env, c.expires.timeIntervalSinceNow > 60 { return c.token }
-        guard let id = KeychainStore.get(idAccount(env)), let secret = KeychainStore.get(secretAccount(env)),
-              !id.isEmpty, !secret.isEmpty else { throw MorningError.notConfigured }
+        guard let creds = credentials(env) else { throw MorningError.notConfigured }
+        let id = creds.id, secret = creds.secret
         var req = URLRequest(url: env.tokenURL)
         req.httpMethod = "POST"
         req.timeoutInterval = 30
@@ -81,7 +104,7 @@ final class MorningService {
 
     private static func send(_ req: URLRequest) async throws -> (Data, HTTPURLResponse) {
         do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await session.data(for: req)
             guard let http = resp as? HTTPURLResponse else { throw MorningError.badResponse }
             return (data, http)
         } catch let e as MorningError { throw e }
@@ -90,6 +113,7 @@ final class MorningService {
 
     /// בדיקת חיבור: מבקש טוקן בלבד (לא יוצר שום מסמך)
     static func testConnection(_ env: Environment) async throws {
+        if env == .demo { return }
         cachedToken = nil
         _ = try await accessToken(env)
     }
@@ -97,6 +121,12 @@ final class MorningService {
     /// מפיק מסמך רשמי. פעולה שאי אפשר לבטל בסביבה האמיתית (אפשר רק להפיק מסמך מבטל/זיכוי).
     static func createDocument(_ draft: MorningDocumentDraft) async throws -> CreatedDocument {
         let env = environment
+        if env == .demo {
+            try await Task.sleep(nanoseconds: 600_000_000)
+            demoCounter += 1
+            return CreatedDocument(id: "demo-\(UUID().uuidString)", number: 1000 + demoCounter, type: draft.type.rawValue,
+                                   url: nil, taxAuthorityError: 0)
+        }
         let token = try await accessToken(env)
         var req = URLRequest(url: env.apiBase.appendingPathComponent("documents"))
         req.httpMethod = "POST"
@@ -130,7 +160,7 @@ final class MorningService {
                       categoryID: categoryID, accountID: accountID, source: .manual)
         e.paymentMethod = draft.payment.ledgerMethod
         e.externalRef = "morning:\(doc.id)"
-        let env = environment == .sandbox ? " (ניסיון)" : ""
+        let env = ""
         e.note = "\(draft.type.label) מס׳ \(doc.number)\(env)" + (doc.url.map { "\n\($0.absoluteString)" } ?? "")
         let vat = AppSettings.vat
         if vat.isRegistered && !draft.vatExempt {
