@@ -174,6 +174,12 @@ struct CategoriesView: View {
                                 Text(c.isEssential ? "חיוני" : "לא חיוני").font(.caption2).foregroundStyle(.secondary)
                             }
                         }
+                        if c.scope == .business && !c.isIncome {
+                            Picker("מע״מ מוכר", selection: Binding(get: { c.vatDeductibleBP }, set: { c.vatDeductibleBP = $0; try? context.save() })) {
+                                Text("100%").tag(10_000); Text("2/3 (רכב)").tag(6_667); Text("1/4").tag(2_500); Text("ללא").tag(0)
+                            }
+                            .font(.caption)
+                        }
                         let subs = categories.filter { $0.parentID == c.id }
                         if !subs.isEmpty {
                             Text(subs.map(\.name).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)

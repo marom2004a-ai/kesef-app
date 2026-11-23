@@ -6,6 +6,8 @@ struct ForecastView: View {
     @Query private var entries: [Entry]
     @Query private var accounts: [Account]
     @Query private var rules: [RecurringRule]
+    @Query private var categories: [Category]
+    @AppStorage(AppSettings.Key.vatRegistered) private var vatRegistered = true
     @AppStorage(AppSettings.Key.monthlySavingsMinor) private var savingsMinor = 0
     @AppStorage(AppSettings.Key.partnerShareBP) private var partnerBP = 0
     @State private var days = 30
@@ -18,7 +20,9 @@ struct ForecastView: View {
         let input = ForecastInput(now: .now, horizonEnd: cal.addDays(days, to: cal.startOfDay(.now)),
                                   accounts: accounts.map(\.snapshot), entries: entries.map(\.snapshot),
                                   recurring: rules.map(\.snapshot), partner: partnerBP > 0 ? AppSettings.partner : nil,
-                                  monthlySavingsTarget: Money(minorUnits: Int64(savingsMinor)), includeVariableSpending: includeVariable)
+                                  monthlySavingsTarget: Money(minorUnits: Int64(savingsMinor)), includeVariableSpending: includeVariable,
+                                  vat: vatRegistered ? AppSettings.vat : nil,
+                                  vatDeductibleBP: Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.vatDeductibleBP) }))
         var r: [Scenario: ForecastResult] = [:]
         for s in Scenario.allCases { r[s] = ForecastEngine.run(input, scenario: s, calendar: cal) }
         return r

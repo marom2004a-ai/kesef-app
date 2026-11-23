@@ -77,8 +77,29 @@ struct CSVImportView: View {
     @State private var fileName = ""
     @State private var mapping = CSVColumnMapping()
     @State private var accountID: UUID?
-    @State private var scope: Scope = .personal
+    @State private var scope: Scope = .business
+    @State private var reportType: ReportType = .expenses
     @State private var includeDuplicates = false
+
+    enum ReportType: String, CaseIterable, Identifiable {
+        case expenses, income, bySign
+        var id: String { rawValue }
+        var label: String {
+            switch self { case .expenses: return "דוח הוצאות"; case .income: return "דוח הכנסות"; case .bySign: return "לפי סימן (בנק)" }
+        }
+    }
+
+    /// סכום חתום לפי סוג הדוח: בדוח הוצאות/הכנסות הכיוון קבוע, בלי קשר לסימן בקובץ
+    private func resolved(_ r: ImportedRow) -> ImportedRow {
+        var r = r
+        guard let a = r.signedAmount else { return r }
+        switch reportType {
+        case .expenses: r.signedAmount = -a.absolute
+        case .income: r.signedAmount = a.absolute
+        case .bySign: break
+        }
+        return r
+    }
     @State private var error: String?
     @State private var result: String?
 
@@ -88,7 +109,8 @@ struct CSVImportView: View {
             CSVImportEngine.fingerprint(date: $0.date, signedAmount: $0.kind == .expense ? -$0.amount : $0.amount,
                                         description: $0.title, accountID: accountID)
         }
-        return CSVImportEngine.markDuplicates(CSVImportEngine.rows(from: table, mapping: mapping), existingFingerprints: fps, accountID: accountID)
+        return CSVImportEngine.markDuplicates(CSVImportEngine.rows(from: table, mapping: mapping).map(resolved),
+                                              existingFingerprints: fps, accountID: accountID)
     }
 
     var body: some View {
@@ -96,8 +118,9 @@ struct CSVImportView: View {
         let toImport = preview.filter { $0.isValid && (includeDuplicates || !$0.isDuplicate) }
         Form {
             Section {
-                Button { picking = true } label: { Label(table.isEmpty ? "בחירת קובץ CSV" : "קובץ: \(fileName)", systemImage: "doc") }
-            } footer: { Text("ייצא את התנועות מאתר הבנק או חברת האשראי כקובץ CSV ושמור ב-Files. האפליקציה לא מתחברת לבנק ולא מבקשת סיסמאות.") }
+                Button { picking = true } label: { Label(table.isEmpty ? "בחירת קובץ Excel או CSV" : "קובץ: \(fileName)", systemImage: "doc") }
+                Picker("סוג הדוח", selection: $reportType) { ForEach(ReportType.allCases) { Text($0.label).tag($0) } }
+            } footer: { Text("דוח הוצאות או הכנסות מתוכנת הנהלת החשבונות, מרואה החשבון, מהבנק או מחברת האשראי — שמור ב-Files ובחר כאן. אם יש בדוח עמודת מע״מ, הסכום המדויק נשמר לחישוב המע״מ. האפליקציה לא מתחברת לבנק ולא מבקשת סיסמאות.") }
 
             if let error { Section { ErrorBanner(message: error) } }
             if let result { Section { Label(result, systemImage: "checkmark.circle.fill").foregroundStyle(Theme.income) } }
@@ -112,12 +135,13 @@ struct CSVImportView: View {
                         Text("עמודות חובה/זכות נפרדות").tag(-1)
                         ForEach(headers.indices, id: \.self) { Text(label(headers, $0)).tag($0) }
                     }
-                    if mapping.amountColumn == nil {
+                    if mapping.amountColumn == nil && reportType == .bySign {
                         optionalColumnPicker("חובה (יציאה)", selection: $mapping.debitColumn, headers: headers)
                         optionalColumnPicker("זכות (כניסה)", selection: $mapping.creditColumn, headers: headers)
-                    } else {
+                    } else if reportType == .bySign {
                         Toggle("סכום חיובי = הוצאה (קובץ אשראי)", isOn: $mapping.positiveIsExpense)
                     }
+                    optionalColumnPicker("מע״מ (לא חובה)", selection: $mapping.vatColumn, headers: headers)
                     Toggle("תאריך בפורמט יום/חודש/שנה", isOn: $mapping.dayFirst)
                 }
                 Section("יעד") {
@@ -135,7 +159,10 @@ struct CSVImportView: View {
                                 if r.isDuplicate { Text("כבר קיים").font(.caption2).foregroundStyle(Theme.warning) }
                             }
                             Spacer()
-                            if let a = r.signedAmount { MoneyText(money: a, font: .subheadline, colored: true) }
+                            VStack(alignment: .trailing) {
+                                if let a = r.signedAmount { MoneyText(money: a, font: .subheadline, colored: true) }
+                                if let v = r.vat { Text("מע״מ \(MoneyFormat.string(v))").font(.caption2).foregroundStyle(.secondary) }
+                            }
                         }
                         .opacity(r.isValid && (includeDuplicates || !r.isDuplicate) ? 1 : 0.45)
                     }
@@ -149,13 +176,19 @@ struct CSVImportView: View {
             }
         }
         .navigationTitle("ייבוא CSV")
-        .fileImporter(isPresented: $picking, allowedContentTypes: [.commaSeparatedText, .plainText, .tabSeparatedText, .data]) { res in
+        .fileImporter(isPresented: $picking, allowedContentTypes: [.spreadsheet, .commaSeparatedText, .plainText, .tabSeparatedText, .data]) { res in
             switch res {
             case .success(let url):
                 let access = url.startAccessingSecurityScopedResource()
                 defer { if access { url.stopAccessingSecurityScopedResource() } }
                 do {
                     let data = try Data(contentsOf: url)
+                    if url.pathExtension.lowercased() == "xlsx" || data.starts(with: [0x50, 0x4B, 0x03, 0x04]) {
+                        let t = try XLSXReader.readFirstSheet(data)
+                        guard !t.isEmpty else { error = "הגיליון ריק."; return }
+                        table = t; fileName = url.lastPathComponent; mapping = CSVImportEngine.guessMapping(t); error = nil; result = nil
+                        return
+                    }
                     // קובצי בנקים ישראליים מגיעים לפעמים ב-Windows-1255
                     guard let text = String(data: data, encoding: .utf8)
                             ?? String(data: data, encoding: String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.windowsHebrew.rawValue))))
@@ -193,6 +226,7 @@ struct CSVImportView: View {
                           scope: scope, accountID: accountID, source: .csvImport)
             e.importFingerprint = CSVImportEngine.fingerprint(date: date, signedAmount: signed, description: r.description, accountID: accountID)
             e.note = "יובא מ-\(fileName)"
+            e.vatMinor = r.vat?.minorUnits
             context.insert(e)
             count += 1
         }

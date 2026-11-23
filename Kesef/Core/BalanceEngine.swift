@@ -21,7 +21,7 @@ public enum BalanceEngine {
             if e.accountID == accountID { delta += e.amount }
         case .expense:
             if e.accountID == accountID { delta -= e.amount }
-        case .transfer, .cardPayment, .ownerDraw, .partnerPayout:
+        case .transfer, .cardPayment, .ownerDraw, .partnerPayout, .taxPayment:
             if e.accountID == accountID { delta -= e.amount }
             if e.toAccountID == accountID { delta += e.amount }
         }

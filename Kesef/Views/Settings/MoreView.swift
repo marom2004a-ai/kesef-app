@@ -8,12 +8,13 @@ struct MoreView: View {
                 NavigationLink { RecurringListView() } label: { Label("חיובים קבועים", systemImage: "repeat") }
                 NavigationLink { BudgetsView() } label: { Label("תקציבים", systemImage: "chart.pie") }
                 NavigationLink { SavingsView() } label: { Label("חיסכון, יעדים והמלצות", systemImage: "leaf") }
+                NavigationLink { VatReportView() } label: { Label("מע״מ וחלוקת רווח עם השותף", systemImage: "percent") }
                 NavigationLink { ReportsView() } label: { Label("דוחות וניתוח", systemImage: "chart.bar.xaxis") }
             }
             Section("נתונים") {
                 NavigationLink { AccountsView() } label: { Label("חשבונות וכרטיסים", systemImage: "building.columns") }
                 NavigationLink { CategoriesView() } label: { Label("קטגוריות", systemImage: "tag") }
-                NavigationLink { CSVImportView() } label: { Label("ייבוא CSV מהבנק / אשראי", systemImage: "square.and.arrow.down") }
+                NavigationLink { CSVImportView() } label: { Label("ייבוא דוח (Excel / CSV)", systemImage: "square.and.arrow.down") }
                 NavigationLink { BackupView() } label: { Label("גיבוי ושחזור", systemImage: "externaldrive") }
             }
             Section("הגדרות") {
@@ -36,6 +37,9 @@ struct SettingsView: View {
     @AppStorage(AppSettings.Key.budgetAlertsEnabled) private var budgetAlerts = true
     @AppStorage(AppSettings.Key.reserveMinor) private var reserveMinor = 0
     @AppStorage(AppSettings.Key.monthlySavingsMinor) private var savingsMinor = 0
+    @AppStorage(AppSettings.Key.vatRegistered) private var vatRegistered = true
+    @AppStorage(AppSettings.Key.vatRateBP) private var vatRateBP = 1800
+    @AppStorage(AppSettings.Key.vatPeriodMonths) private var vatPeriodMonths = 2
     @State private var reserveText = ""
     @State private var savingsText = ""
     @State private var notifStatus = "בודק…"
@@ -51,6 +55,17 @@ struct SettingsView: View {
                     Text("הוצאה עסקית").tag(Scope.business.rawValue)
                 }
             } footer: { Text("ברירת המחדל המקורית היא 'אישית'. אפשר תמיד לשנות בכל רכישה במסך האישור.") }
+
+            Section {
+                Toggle("עוסק מורשה (גובה מע״מ)", isOn: $vatRegistered)
+                if vatRegistered {
+                    Stepper("שיעור מע״מ: \(vatRateBP / 100)%", value: $vatRateBP, in: 0...3000, step: 100)
+                    Picker("תקופת דיווח", selection: $vatPeriodMonths) {
+                        Text("חודשית").tag(1); Text("דו-חודשית").tag(2)
+                    }
+                }
+            } header: { Text("מע״מ") }
+              footer: { Text("השיעור בישראל הוא 18% מינואר 2025. אחוז המע״מ המוכר בכל קטגוריה (למשל רכב 2/3) נקבע במסך הקטגוריות.") }
 
             Section("תכנון") {
                 LabeledContent("כרית ביטחון (לא לגעת)") {
@@ -129,15 +144,22 @@ struct SettingsView: View {
 }
 
 struct PartnerSettingsView: View {
-    @AppStorage(AppSettings.Key.partnerName) private var name = "שותף"
-    @AppStorage(AppSettings.Key.partnerShareBP) private var shareBP = 0
+    @AppStorage(AppSettings.Key.partnerName) private var name = "מרום"
+    @AppStorage(AppSettings.Key.partnerShareBP) private var shareBP = 5000
     @AppStorage(AppSettings.Key.partnerBasis) private var basisRaw = PartnerBasis.profit.rawValue
     @Query private var entries: [Entry]
 
     var body: some View {
         let cal = FinanceCalendar.israel
         let settings = PartnerSettings(name: name, shareBasisPoints: shareBP, basis: PartnerBasis(rawValue: basisRaw) ?? .profit)
-        let st = PartnerEngine.statement(entries: entries.map(\.snapshot), period: cal.monthRange(.now), settings: settings)
+        let vat = AppSettings.vat
+        let st: PartnerStatement = {
+            if vat.isRegistered {
+                let s = PartnerEngine.split(entries: entries.map(\.snapshot), period: cal.monthRange(.now), partner: settings, vat: vat)
+                return PartnerStatement(base: s.base, share: s.partnerShare, paid: s.paidToPartner)
+            }
+            return PartnerEngine.statement(entries: entries.map(\.snapshot), period: cal.monthRange(.now), settings: settings)
+        }()
         Form {
             Section {
                 TextField("שם השותף", text: $name)
@@ -146,7 +168,7 @@ struct PartnerSettingsView: View {
                     ForEach(PartnerBasis.allCases) { Text($0.label).tag($0.rawValue) }
                 }
             } footer: {
-                Text("0% = אין שותף. החלוקה חלה רק על הכנסות והוצאות שסווגו כעסקיות. הפקדה לחשבון אינה נחשבת אוטומטית ככסף אישי זמין.")
+                Text("0% = אין שותף. החלוקה חלה רק על הכנסות והוצאות שסווגו כעסקיות, ומחושבת אחרי מע״מ כשמוגדר עוסק מורשה. פירוט מלא במסך 'מע״מ וחלוקת רווח'.")
             }
             if shareBP > 0 {
                 Section("החודש") {

@@ -17,6 +17,8 @@ enum Persistence {
     }()
 
     static func makeContainer(inMemory: Bool) -> ModelContainer {
+        // גם כש-App Intent מפעיל את האפליקציה ברקע — ברירות המחדל חייבות להיות רשומות
+        AppSettings.registerDefaults()
         // בהפעלה הראשונה תיקיית Application Support עוד לא קיימת — יוצרים אותה מראש
         if !inMemory {
             try? FileManager.default.createDirectory(at: URL.applicationSupportDirectory, withIntermediateDirectories: true)
@@ -77,10 +79,15 @@ struct Ledger {
         return s.isActive ? s : nil
     }
 
+    func vatDeductibleMap() -> [UUID: Int] {
+        Dictionary(uniqueKeysWithValues: categories().map { ($0.id, $0.vatDeductibleBP) })
+    }
+
     func dashboard(now: Date = .now) -> DashboardSnapshot {
         DashboardEngine.build(now: now, accounts: accounts().map(\.snapshot), entries: entries().map(\.snapshot),
                               recurring: recurring().map(\.snapshot), partner: partnerSettings(),
-                              monthlySavingsTarget: AppSettings.monthlySavingsTarget, reserve: AppSettings.reserve)
+                              monthlySavingsTarget: AppSettings.monthlySavingsTarget, reserve: AppSettings.reserve,
+                              vat: AppSettings.vat, vatDeductibleBP: vatDeductibleMap())
     }
 }
 
@@ -124,6 +131,8 @@ enum Seed {
         add("ציוד", .business, "shippingbox")
         add("שכירות עסק", .business, "building.2")
         add("רכב עסקי", .business, "car")
+        // רכב עסקי פרטי: מוכר בדרך כלל 2/3 מהמע״מ (ניתן לשנות בקטגוריות)
+        if let car = (try? context.fetch(FetchDescriptor<Category>()))?.first(where: { $0.name == "רכב עסקי" }) { car.vatDeductibleBP = 6_667 }
         add("ספקים", .business, "person.2")
         add("שירותים עסקיים", .business, "briefcase")
         add("וטרינר", .business, "stethoscope")
@@ -150,6 +159,22 @@ enum AppSettings {
         static let automationVerifiedAt = "automationVerifiedAt"
         static let budgetAlertBP = "budgetAlertBP"
         static let defaultApplePayAccount = "defaultApplePayAccount"
+        static let vatRegistered = "vatRegistered"
+        static let vatRateBP = "vatRateBP"
+        static let vatPeriodMonths = "vatPeriodMonths"
+    }
+
+    /// ברירות מחדל: עוסק מורשה, 18%, דו-חודשי; שותף "מרום" 50% מהרווח
+    static func registerDefaults() {
+        d.register(defaults: [
+            Key.vatRegistered: true, Key.vatRateBP: 1800, Key.vatPeriodMonths: 2,
+            Key.partnerName: "מרום", Key.partnerShareBP: 5000, Key.partnerBasis: PartnerBasis.profit.rawValue
+        ])
+    }
+
+    static var vat: VatSettings {
+        VatSettings(isRegistered: d.bool(forKey: Key.vatRegistered), rateBasisPoints: d.integer(forKey: Key.vatRateBP),
+                    periodMonths: d.integer(forKey: Key.vatPeriodMonths))
     }
     static var d: UserDefaults { .standard }
 
@@ -159,7 +184,7 @@ enum AppSettings {
         set { d.set(newValue.rawValue, forKey: Key.defaultApplePayScope) }
     }
     static var partner: PartnerSettings {
-        PartnerSettings(name: d.string(forKey: Key.partnerName) ?? "שותף",
+        PartnerSettings(name: d.string(forKey: Key.partnerName) ?? "מרום",
                         shareBasisPoints: d.integer(forKey: Key.partnerShareBP),
                         basis: PartnerBasis(rawValue: d.string(forKey: Key.partnerBasis) ?? "") ?? .profit)
     }

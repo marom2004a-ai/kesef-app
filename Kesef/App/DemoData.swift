@@ -15,7 +15,7 @@ enum DemoMode {
     }
 
     /// מסכים שמוצגים לבד (בלי סרגל הלשוניות)
-    static let standalone: Set<String> = ["recurring", "budgets", "reports", "savings", "accounts", "automation", "settings"]
+    static let standalone: Set<String> = ["recurring", "budgets", "reports", "savings", "accounts", "automation", "settings", "vat", "import"]
 
     @MainActor @ViewBuilder
     static func standaloneView(_ name: String) -> some View {
@@ -26,6 +26,8 @@ enum DemoMode {
         case "savings": SavingsView()
         case "accounts": AccountsView()
         case "automation": AutomationSetupView()
+        case "vat": VatReportView()
+        case "import": CSVImportView()
         default: SettingsView()
         }
     }
@@ -53,8 +55,8 @@ enum DemoData {
     static func seed(_ context: ModelContext, now: Date = .now) {
         let cal = FinanceCalendar.israel
         let d = UserDefaults.standard
-        d.set(3000, forKey: AppSettings.Key.partnerShareBP)
-        d.set("דני (שותף)", forKey: AppSettings.Key.partnerName)
+        d.set(5000, forKey: AppSettings.Key.partnerShareBP)
+        d.set("מרום", forKey: AppSettings.Key.partnerName)
         d.set(PartnerBasis.profit.rawValue, forKey: AppSettings.Key.partnerBasis)
         d.set(200_000, forKey: AppSettings.Key.reserveMinor)
         d.set(100_000, forKey: AppSettings.Key.monthlySavingsMinor)

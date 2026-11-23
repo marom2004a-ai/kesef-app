@@ -12,7 +12,7 @@ public enum Scope: String, Codable, CaseIterable, Sendable, Identifiable {
 /// סוג התנועה. רק income / expense / refund נכנסים לרווח והפסד.
 /// העברות, סילוק כרטיס, משיכות בעלים ותשלום לשותף משנים יתרות אבל אינם "הוצאה" — כך נמנעת ספירה כפולה.
 public enum EntryKind: String, Codable, CaseIterable, Sendable, Identifiable {
-    case income, expense, refund, transfer, cardPayment, ownerDraw, partnerPayout
+    case income, expense, refund, transfer, cardPayment, ownerDraw, partnerPayout, taxPayment
     public var id: String { rawValue }
     public var label: String {
         switch self {
@@ -23,6 +23,7 @@ public enum EntryKind: String, Codable, CaseIterable, Sendable, Identifiable {
         case .cardPayment: return "סילוק כרטיס אשראי"
         case .ownerDraw: return "משיכת בעלים"
         case .partnerPayout: return "תשלום לשותף"
+        case .taxPayment: return "תשלום מע״מ / מס"
         }
     }
     public var isProfitAndLoss: Bool { self == .income || self == .expense || self == .refund }
@@ -206,15 +207,18 @@ public struct EntrySnapshot: Hashable, Sendable, Identifiable {
     public var occurrenceDate: Date?
     public var certainty: Certainty
     public var isFixed: Bool
+    /// סכום מע״מ מדויק מתוך הדוח/החשבונית (אם ידוע). nil = מחושב לפי שיעור המע״מ.
+    public var vatOverride: Money?
 
     public init(id: UUID = UUID(), kind: EntryKind, status: EntryStatus = .confirmed, amount: Money, date: Date,
                 createdAt: Date? = nil, title: String = "", scope: Scope = .personal, categoryID: UUID? = nil,
                 accountID: UUID? = nil, toAccountID: UUID? = nil, recurringRuleID: UUID? = nil,
-                occurrenceDate: Date? = nil, certainty: Certainty = .high, isFixed: Bool = false) {
+                occurrenceDate: Date? = nil, certainty: Certainty = .high, isFixed: Bool = false, vatOverride: Money? = nil) {
         self.id = id; self.kind = kind; self.status = status; self.amount = amount; self.date = date
         self.createdAt = createdAt ?? date; self.title = title; self.scope = scope; self.categoryID = categoryID
         self.accountID = accountID; self.toAccountID = toAccountID; self.recurringRuleID = recurringRuleID
         self.occurrenceDate = occurrenceDate; self.certainty = certainty; self.isFixed = isFixed
+        self.vatOverride = vatOverride
     }
 }
 

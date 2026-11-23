@@ -6,6 +6,8 @@ struct HomeView: View {
     @Query private var entries: [Entry]
     @Query(sort: \Account.sortOrder) private var accounts: [Account]
     @Query private var rules: [RecurringRule]
+    @Query private var categories: [Category]
+    @AppStorage(AppSettings.Key.vatRegistered) private var vatRegistered = true
     @State private var showAddAccount = false
     @AppStorage(AppSettings.Key.reserveMinor) private var reserveMinor = 0
     @AppStorage(AppSettings.Key.monthlySavingsMinor) private var savingsMinor = 0
@@ -14,7 +16,9 @@ struct HomeView: View {
     private var dashboard: DashboardSnapshot {
         DashboardEngine.build(now: .now, accounts: accounts.map(\.snapshot), entries: entries.map(\.snapshot),
                               recurring: rules.map(\.snapshot), partner: partnerBP > 0 ? AppSettings.partner : nil,
-                              monthlySavingsTarget: Money(minorUnits: Int64(savingsMinor)), reserve: Money(minorUnits: Int64(reserveMinor)))
+                              monthlySavingsTarget: Money(minorUnits: Int64(savingsMinor)), reserve: Money(minorUnits: Int64(reserveMinor)),
+                              vat: vatRegistered ? AppSettings.vat : nil,
+                              vatDeductibleBP: Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.vatDeductibleBP) }))
     }
 
     var body: some View {
@@ -155,7 +159,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("חלק השותף החודש (\(AppSettings.partner.name))").font(.subheadline).foregroundStyle(.secondary)
             MoneyText(money: owed, font: .title3.weight(.semibold))
-            Text(owed.isNegative ? "שולם לשותף יותר מחלקו החודש." : "כסף ששייך לשותף — לא נכלל בסכום הפנוי.")
+            Text(owed.isNegative ? "שולם לשותף יותר מחלקו החודש." : "כסף ששייך לשותף — לא נכלל בסכום הפנוי. מחושב מהרווח אחרי מע״מ.")
                 .font(.caption).foregroundStyle(.secondary)
         }.card()
     }

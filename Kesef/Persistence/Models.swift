@@ -42,6 +42,8 @@ final class Category {
     var symbol: String
     var isArchived: Bool
     var sortOrder: Int
+    /// כמה מהמע״מ בהוצאות בקטגוריה מוכר לקיזוז (נקודות בסיס). רכב: 2/3.
+    var vatDeductibleBP: Int = 10_000
 
     init(name: String, scope: Scope, isIncome: Bool = false, isEssential: Bool = true, parentID: UUID? = nil,
          symbol: String = "tag", sortOrder: Int = 0) {
@@ -84,6 +86,8 @@ final class Entry {
     var splitGroupID: UUID?
     var refundOfID: UUID?
     var importFingerprint: String?
+    /// מע״מ מדויק מהדוח/החשבונית באגורות (nil = לפי שיעור המע״מ)
+    var vatMinor: Int64?
     var createdAt: Date
     var updatedAt: Date
     var confirmedAt: Date?
@@ -229,7 +233,8 @@ extension Entry {
     var snapshot: EntrySnapshot {
         EntrySnapshot(id: id, kind: kind, status: status, amount: amount, date: date, createdAt: createdAt, title: title,
                       scope: scope, categoryID: categoryID, accountID: accountID, toAccountID: toAccountID,
-                      recurringRuleID: recurringRuleID, occurrenceDate: occurrenceDate, certainty: certainty, isFixed: isFixed)
+                      recurringRuleID: recurringRuleID, occurrenceDate: occurrenceDate, certainty: certainty, isFixed: isFixed,
+                      vatOverride: vatMinor.map { Money(minorUnits: $0) })
     }
 }
 extension Account {

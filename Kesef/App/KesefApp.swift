@@ -5,7 +5,12 @@ import UserNotifications
 @main
 struct KesefApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var lock = AppLock()
+    @State private var lock: AppLock
+
+    init() {
+        AppSettings.registerDefaults()
+        _lock = State(initialValue: AppLock())
+    }
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {

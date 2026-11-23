@@ -72,12 +72,15 @@ public struct CSVColumnMapping: Hashable, Sendable {
     public var positiveIsExpense: Bool
     /// true = יום/חודש/שנה (ישראלי). false = חודש/יום/שנה
     public var dayFirst: Bool
+    /// עמודת סכום המע״מ (אם הדוח כולל אותה)
+    public var vatColumn: Int?
 
     public init(hasHeader: Bool = true, dateColumn: Int = 0, descriptionColumn: Int = 1, amountColumn: Int? = 2,
-                debitColumn: Int? = nil, creditColumn: Int? = nil, positiveIsExpense: Bool = false, dayFirst: Bool = true) {
+                debitColumn: Int? = nil, creditColumn: Int? = nil, positiveIsExpense: Bool = false, dayFirst: Bool = true,
+                vatColumn: Int? = nil) {
         self.hasHeader = hasHeader; self.dateColumn = dateColumn; self.descriptionColumn = descriptionColumn
         self.amountColumn = amountColumn; self.debitColumn = debitColumn; self.creditColumn = creditColumn
-        self.positiveIsExpense = positiveIsExpense; self.dayFirst = dayFirst
+        self.positiveIsExpense = positiveIsExpense; self.dayFirst = dayFirst; self.vatColumn = vatColumn
     }
 }
 
@@ -90,16 +93,19 @@ public struct ImportedRow: Sendable, Identifiable, Hashable {
     public var signedAmount: Money?
     public var error: String?
     public var isDuplicate: Bool = false
+    /// סכום המע״מ מהדוח (תמיד חיובי), אם יש עמודה כזו
+    public var vat: Money? = nil
     public var isValid: Bool { error == nil && date != nil && signedAmount != nil }
 }
 
 public enum CSVImportEngine {
 
     static let dateHeaders = ["תאריך", "date", "תאריך עסקה", "תאריך רכישה", "תאריך ערך"]
-    static let descHeaders = ["תיאור", "בית עסק", "שם בית העסק", "פרטים", "תיאור התנועה", "description", "merchant", "payee", "אסמכתא"]
+    static let descHeaders = ["תיאור", "בית עסק", "שם בית העסק", "פרטים", "תיאור התנועה", "description", "merchant", "payee", "ספק", "שם הספק", "לקוח", "שם הלקוח", "אסמכתא"]
     static let amountHeaders = ["סכום", "סכום חיוב", "סכום העסקה", "amount", "סכום בש\"ח", "סכום בשח"]
     static let debitHeaders = ["חובה", "debit", "בחובה"]
     static let creditHeaders = ["זכות", "credit", "בזכות"]
+    static let vatHeaders = ["מע\"מ", "מע״מ", "מעמ", "vat", "סכום מע\"מ", "סכום מעמ"]
 
     /// ניחוש מיפוי עמודות לפי כותרות
     public static func guessMapping(_ table: [[String]]) -> CSVColumnMapping {
@@ -111,8 +117,26 @@ public enum CSVImportEngine {
             for k in keys { if let i = lower.firstIndex(where: { $0.contains(k.lowercased()) }) { return i } }
             return nil
         }
-        let d = find(dateHeaders), desc = find(descHeaders), amt = find(amountHeaders)
+        // עמודת מע״מ בלבד: מזכירה מע״מ ולא "כולל/ללא/לפני"
+        let vatKeys = vatHeaders.map { $0.lowercased() }
+        func isVATOnly(_ i: Int) -> Bool {
+            !lower[i].contains("כולל") && !lower[i].contains("ללא") && !lower[i].contains("לפני")
+                && vatKeys.contains(where: { lower[i].contains($0) })
+        }
+        let d = find(dateHeaders), desc = find(descHeaders)
+        // עמודת הסכום: עדיפות ל"כולל מע״מ", ואף פעם לא עמודת המע״מ עצמה
+        func firstIndex(_ test: (Int) -> Bool) -> Int? { lower.indices.first(where: test) }
+        var amt: Int? = firstIndex { i in
+            lower[i].contains("כולל") && amountHeaders.contains(where: { k in lower[i].contains(k.lowercased()) })
+        }
+        if amt == nil {
+            for k in amountHeaders { if let i = firstIndex({ j in !isVATOnly(j) && lower[j] == k.lowercased() }) { amt = i; break } }
+        }
+        if amt == nil {
+            for k in amountHeaders { if let i = firstIndex({ j in !isVATOnly(j) && lower[j].contains(k.lowercased()) }) { amt = i; break } }
+        }
         let deb = find(debitHeaders), cre = find(creditHeaders)
+        if let v = lower.indices.first(where: { $0 != amt && $0 != desc && isVATOnly($0) }) { m.vatColumn = v }
         m.hasHeader = d != nil || desc != nil || amt != nil
         if let d { m.dateColumn = d }
         if let desc { m.descriptionColumn = desc }
@@ -127,6 +151,14 @@ public enum CSVImportEngine {
 
     /// פענוח תאריך גמיש: 05/11/2026, 5.11.26, 2026-11-05, 05-11-2026 14:30
     public static func parseDate(_ raw: String, dayFirst: Bool = true, calendar cal: FinanceCalendar = .israel) -> Date? {
+        // תאריך אקסל: מספר ימים מ-30/12/1899 (למשל 46350)
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        if let serial = Double(trimmed), !trimmed.contains("/"), !trimmed.contains("-"), serial >= 30_000, serial < 80_000 {
+            var base = DateComponents(year: 1899, month: 12, day: 30, hour: 12)
+            base.timeZone = cal.calendar.timeZone
+            guard let origin = cal.calendar.date(from: base) else { return nil }
+            return cal.calendar.date(byAdding: .day, value: Int(serial), to: origin)
+        }
         let parts = raw.split(whereSeparator: { !$0.isNumber }).map(String.init)
         guard parts.count >= 3, let a = Int(parts[0]), let b = Int(parts[1]), let c = Int(parts[2]) else { return nil }
         var y: Int, mo: Int, d: Int
@@ -162,6 +194,7 @@ public enum CSVImportEngine {
                 let credit = AmountParser.parse(col(m.creditColumn))?.absolute ?? .zero
                 if !debit.isZero || !credit.isZero { row.signedAmount = credit - debit }
             }
+            if let vc = m.vatColumn { row.vat = AmountParser.parse(col(vc))?.absolute }
             if row.date == nil { row.error = "תאריך לא מזוהה: \(col(m.dateColumn))" }
             else if row.signedAmount == nil || row.signedAmount!.isZero { row.error = "סכום חסר או אפס" }
             // שורות סיכום ("סה״כ") בסוף קובצי אשראי

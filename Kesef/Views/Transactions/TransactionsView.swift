@@ -165,7 +165,7 @@ struct EntryRow: View {
     private var signed: Money {
         switch entry.kind {
         case .income, .refund: return entry.amount
-        case .expense, .partnerPayout: return -entry.amount
+        case .expense, .partnerPayout, .taxPayment: return -entry.amount
         default: return entry.amount
         }
     }

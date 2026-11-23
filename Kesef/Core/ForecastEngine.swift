@@ -2,7 +2,7 @@ import Foundation
 
 public enum ForecastEventKind: String, Sendable, Hashable {
     case expectedIncome, recurringIncome, plannedExpense, pendingExpense, recurringExpense,
-         cardPayment, partnerShare, savingsTarget, variableSpending
+         cardPayment, partnerShare, vatPayment, savingsTarget, variableSpending
 
     public var label: String {
         switch self {
@@ -13,13 +13,14 @@ public enum ForecastEventKind: String, Sendable, Hashable {
         case .recurringExpense: return "חיוב קבוע"
         case .cardPayment: return "חיוב כרטיס אשראי"
         case .partnerShare: return "חלק השותף"
+        case .vatPayment: return "תשלום מע״מ"
         case .savingsTarget: return "העברה ליעד חיסכון"
         case .variableSpending: return "הוצאות שוטפות (הערכה)"
         }
     }
     public var isOutflowCommitment: Bool {
         switch self {
-        case .plannedExpense, .pendingExpense, .recurringExpense, .cardPayment, .partnerShare: return true
+        case .plannedExpense, .pendingExpense, .recurringExpense, .cardPayment, .partnerShare, .vatPayment: return true
         default: return false
         }
     }
@@ -62,13 +63,17 @@ public struct ForecastInput: Sendable {
     public var partner: PartnerSettings?
     public var monthlySavingsTarget: Money
     public var includeVariableSpending: Bool
+    public var vat: VatSettings?
+    public var vatDeductibleBP: [UUID: Int]
 
     public init(now: Date, horizonEnd: Date, accounts: [AccountSnapshot], entries: [EntrySnapshot],
                 recurring: [RecurringSnapshot], partner: PartnerSettings? = nil,
-                monthlySavingsTarget: Money = .zero, includeVariableSpending: Bool = true) {
+                monthlySavingsTarget: Money = .zero, includeVariableSpending: Bool = true,
+                vat: VatSettings? = nil, vatDeductibleBP: [UUID: Int] = [:]) {
         self.now = now; self.horizonEnd = horizonEnd; self.accounts = accounts; self.entries = entries
         self.recurring = recurring; self.partner = partner; self.monthlySavingsTarget = monthlySavingsTarget
         self.includeVariableSpending = includeVariableSpending
+        self.vat = vat; self.vatDeductibleBP = vatDeductibleBP
     }
 }
 
@@ -163,19 +168,39 @@ public enum ForecastEngine {
         // 5. חלק השותף לחודש הנוכחי — בסוף החודש
         let lastDayOfMonth = cal.addDays(-1, to: cal.endOfMonth(today))
         if let partner = input.partner, partner.isActive, lastDayOfMonth < end {
-            let st = PartnerEngine.statement(entries: input.entries, period: cal.monthRange(today), settings: partner)
-            var owed = st.owed
+            let registeredVAT = input.vat.flatMap { $0.isRegistered ? $0 : nil }
+            var owed: Money
+            if let v = registeredVAT {
+                owed = PartnerEngine.split(entries: input.entries, period: cal.monthRange(today), partner: partner,
+                                           vat: v, deductibleBP: input.vatDeductibleBP, calendar: cal).stillOwedToPartner
+            } else {
+                owed = PartnerEngine.statement(entries: input.entries, period: cal.monthRange(today), settings: partner).owed
+            }
             // חלק השותף גם מהכנסות עסקיות צפויות שנכללו בתרחיש החודש
             let expectedBusiness = input.entries.filter {
                 $0.kind == .income && $0.status == .planned && $0.scope == .business
                     && cal.monthRange(today).contains(Swift.max(cal.startOfDay($0.date), today))
                     && scenario.includes(cal.startOfDay($0.date) < today ? .low : $0.certainty)
             }.map(\.amount).sum()
-            owed += expectedBusiness.multiplied(byBasisPoints: partner.shareBasisPoints)
+            let expectedNet = registeredVAT.map { expectedBusiness - VatEngine.vatIncluded(in: expectedBusiness, rateBasisPoints: $0.rateBasisPoints) } ?? expectedBusiness
+            owed += expectedNet.multiplied(byBasisPoints: partner.shareBasisPoints)
             if owed.isPositive {
                 events.append(ForecastEvent(date: lastDayOfMonth, amount: -owed, title: partner.name, kind: .partnerShare))
                 assumptions.append("חלק השותף (\(partner.shareBasisPoints / 100)%) מחושב גם מהכנסות עסקיות צפויות, ומשולם בסוף החודש.")
             }
+        }
+
+        // 5ב. תשלומי מע״מ: התקופה הקודמת (אם מועד התשלום עוד לא עבר) והתקופה הנוכחית
+        if let v = input.vat, v.isRegistered {
+            let current = VatEngine.period(containing: today, settings: v, calendar: cal)
+            for p in [VatEngine.previousPeriod(before: current, settings: v, calendar: cal), current] {
+                let st = VatEngine.statement(entries: input.entries, period: p, settings: v, deductibleBP: input.vatDeductibleBP, calendar: cal)
+                let due = st.dueDate
+                let remaining = st.vatPayable - st.vatPaid
+                guard remaining.isPositive, due >= today, due < end else { continue }
+                events.append(ForecastEvent(date: due, amount: -remaining, title: "מע״מ \(cal.monthKey(p.lowerBound))", kind: .vatPayment))
+            }
+            assumptions.append("מע״מ \(v.rateBasisPoints / 100)% מחושב מתוך הכנסות והוצאות עסקיות מאושרות (כוללות מע״מ), ומשולם ב-\(v.dueDay) לחודש שאחרי התקופה.")
         }
 
         // 6. יעד חיסכון חודשי — מה שנותר להעביר החודש
@@ -279,12 +304,13 @@ public struct DashboardSnapshot: Sendable {
 public enum DashboardEngine {
     public static func build(now: Date, accounts: [AccountSnapshot], entries: [EntrySnapshot], recurring: [RecurringSnapshot],
                              partner: PartnerSettings?, monthlySavingsTarget: Money, reserve: Money,
+                             vat: VatSettings? = nil, vatDeductibleBP: [UUID: Int] = [:],
                              calendar cal: FinanceCalendar = .israel) -> DashboardSnapshot {
         let month = cal.monthRange(now)
         let summary = BalanceEngine.summary(entries: entries, in: month)
         let input = ForecastInput(now: now, horizonEnd: month.upperBound, accounts: accounts, entries: entries,
                                   recurring: recurring, partner: partner, monthlySavingsTarget: monthlySavingsTarget,
-                                  includeVariableSpending: false)
+                                  includeVariableSpending: false, vat: vat, vatDeductibleBP: vatDeductibleBP)
         let base = ForecastEngine.run(input, scenario: .base, calendar: cal)
         let conservative = ForecastEngine.run(input, scenario: .conservative, calendar: cal)
         let optimistic = ForecastEngine.run(input, scenario: .optimistic, calendar: cal)
@@ -311,7 +337,12 @@ public enum DashboardEngine {
 
         var owed: Money? = nil
         if let partner, partner.isActive {
-            owed = PartnerEngine.statement(entries: entries, period: month, settings: partner).owed
+            if let v = vat, v.isRegistered {
+                owed = PartnerEngine.split(entries: entries, period: month, partner: partner, vat: v,
+                                           deductibleBP: vatDeductibleBP, calendar: cal).stillOwedToPartner
+            } else {
+                owed = PartnerEngine.statement(entries: entries, period: month, settings: partner).owed
+            }
         }
 
         return DashboardSnapshot(currentBalance: base.startBalance, lastBalanceUpdate: last,

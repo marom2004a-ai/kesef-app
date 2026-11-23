@@ -12,13 +12,14 @@ struct BackupService {
     struct AccountDTO: Codable { var id: UUID; var name: String; var kind: String; var scope: String; var knownBalance: Int64
         var balanceDate: Date; var billingDay: Int?; var includeInTotals: Bool; var isArchived: Bool; var sortOrder: Int; var createdAt: Date }
     struct CategoryDTO: Codable { var id: UUID; var name: String; var scope: String; var isIncome: Bool; var isEssential: Bool
-        var parentID: UUID?; var symbol: String; var isArchived: Bool; var sortOrder: Int }
+        var parentID: UUID?; var symbol: String; var isArchived: Bool; var sortOrder: Int; var vatDeductibleBP: Int? }
     struct EntryDTO: Codable { var id: UUID; var kind: String; var status: String; var amount: Int64; var date: Date; var title: String
         var scope: String; var categoryID: UUID?; var subcategoryID: UUID?; var accountID: UUID?; var toAccountID: UUID?
         var paymentMethod: String?; var isFixed: Bool; var note: String; var receiptImage: Data?; var source: String
         var certainty: String; var cardLabel: String?; var externalRef: String?; var rawAmountText: String?
         var possibleDuplicateOfID: UUID?; var recurringRuleID: UUID?; var occurrenceDate: Date?; var splitGroupID: UUID?
-        var refundOfID: UUID?; var importFingerprint: String?; var createdAt: Date; var updatedAt: Date; var confirmedAt: Date? }
+        var refundOfID: UUID?; var importFingerprint: String?; var createdAt: Date; var updatedAt: Date; var confirmedAt: Date?
+        var vatMinor: Int64? }
     struct RuleDTO: Codable { var id: UUID; var title: String; var kind: String; var amount: Int64; var isVariableAmount: Bool
         var frequency: String; var dayOfMonth: Int; var startDate: Date; var endDate: Date?; var isPaused: Bool; var scope: String
         var categoryID: UUID?; var accountID: UUID?; var paymentMethod: String?; var remindDaysBefore: Int?
@@ -78,7 +79,8 @@ struct BackupService {
                 knownBalance: $0.knownBalanceMinor, balanceDate: $0.balanceDate, billingDay: $0.billingDay,
                 includeInTotals: $0.includeInTotals, isArchived: $0.isArchived, sortOrder: $0.sortOrder, createdAt: $0.createdAt) },
             categories: l.categories().map { CategoryDTO(id: $0.id, name: $0.name, scope: $0.scopeRaw, isIncome: $0.isIncome,
-                isEssential: $0.isEssential, parentID: $0.parentID, symbol: $0.symbol, isArchived: $0.isArchived, sortOrder: $0.sortOrder) },
+                isEssential: $0.isEssential, parentID: $0.parentID, symbol: $0.symbol, isArchived: $0.isArchived, sortOrder: $0.sortOrder,
+                vatDeductibleBP: $0.vatDeductibleBP) },
             entries: l.entries().map { e in EntryDTO(id: e.id, kind: e.kindRaw, status: e.statusRaw, amount: e.amountMinor, date: e.date,
                 title: e.title, scope: e.scopeRaw, categoryID: e.categoryID, subcategoryID: e.subcategoryID, accountID: e.accountID,
                 toAccountID: e.toAccountID, paymentMethod: e.paymentMethodRaw, isFixed: e.isFixed, note: e.note,
@@ -86,7 +88,7 @@ struct BackupService {
                 externalRef: e.externalRef, rawAmountText: e.rawAmountText, possibleDuplicateOfID: e.possibleDuplicateOfID,
                 recurringRuleID: e.recurringRuleID, occurrenceDate: e.occurrenceDate, splitGroupID: e.splitGroupID,
                 refundOfID: e.refundOfID, importFingerprint: e.importFingerprint, createdAt: e.createdAt,
-                updatedAt: e.updatedAt, confirmedAt: e.confirmedAt) },
+                updatedAt: e.updatedAt, confirmedAt: e.confirmedAt, vatMinor: e.vatMinor) },
             rules: l.recurring().map { r in RuleDTO(id: r.id, title: r.title, kind: r.kindRaw, amount: r.amountMinor,
                 isVariableAmount: r.isVariableAmount, frequency: r.frequencyRaw, dayOfMonth: r.dayOfMonth, startDate: r.startDate,
                 endDate: r.endDate, isPaused: r.isPaused, scope: r.scopeRaw, categoryID: r.categoryID, accountID: r.accountID,
@@ -173,7 +175,7 @@ struct BackupService {
             for c in p.categories {
                 let m = Category(name: c.name, scope: Scope(rawValue: c.scope) ?? .personal, isIncome: c.isIncome, isEssential: c.isEssential,
                                  parentID: c.parentID, symbol: c.symbol, sortOrder: c.sortOrder)
-                m.id = c.id; m.isArchived = c.isArchived
+                m.id = c.id; m.isArchived = c.isArchived; m.vatDeductibleBP = c.vatDeductibleBP ?? 10_000
                 context.insert(m)
             }
             for e in p.entries {
@@ -186,6 +188,7 @@ struct BackupService {
                 m.possibleDuplicateOfID = e.possibleDuplicateOfID; m.recurringRuleID = e.recurringRuleID
                 m.occurrenceDate = e.occurrenceDate; m.splitGroupID = e.splitGroupID; m.refundOfID = e.refundOfID
                 m.importFingerprint = e.importFingerprint; m.createdAt = e.createdAt; m.updatedAt = e.updatedAt; m.confirmedAt = e.confirmedAt
+                m.vatMinor = e.vatMinor
                 context.insert(m)
             }
             for r in p.rules {
