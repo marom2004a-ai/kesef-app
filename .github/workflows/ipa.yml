@@ -1,0 +1,37 @@
+# בונה קובץ התקנה Kesef.ipa לא חתום, להתקנה חינמית מ-Windows עם Sideloadly / AltStore
+# (הכלי חותם אותו עם Apple ID חינמי). הפעלה: gh workflow run ipa.yml
+name: Unsigned IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    runs-on: macos-15-intel
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build Release for iPhone (no signing)
+        run: |
+          xcodebuild build \
+            -project Kesef.xcodeproj -scheme Kesef -configuration Release \
+            -sdk iphoneos -destination "generic/platform=iOS" -derivedDataPath dd \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            > build.log 2>&1 || { grep -E "error:" build.log | head -50; exit 1; }
+          tail -2 build.log
+      - name: Package .ipa
+        run: |
+          APP=dd/Build/Products/Release-iphoneos/Kesef.app
+          test -d "$APP"
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          (cd out && zip -qry Kesef.ipa Payload)
+          ls -la out/Kesef.ipa
+          /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print CFBundleVersion" "$APP/Info.plist"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: Kesef-ipa
+          path: out/Kesef.ipa
+          retention-days: 30
