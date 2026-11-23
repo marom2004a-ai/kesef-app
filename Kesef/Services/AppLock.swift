@@ -32,24 +32,49 @@ final class AppLock {
         LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
     }
 
-    func didEnterBackground() { backgroundedAt = .now }
+    /// אימות פעיל כרגע — חלון Face ID מעביר את האפליקציה ל-inactive ובחזרה ל-active,
+    /// ואסור שהחזרה הזו תנעל שוב או תפתח בקשת אימות שנייה (שמבטלת את הראשונה).
+    private(set) var isAuthenticating = false
+
+    func didEnterBackground() {
+        backgroundedAt = .now
+        // נעילה כבר ביציאה לרקע (אם אין זמן חסד) — כך המסך נעול לפני שחוזרים, בלי הבהוב של הנתונים
+        if isEnabled && UserDefaults.standard.integer(forKey: AppSettings.Key.lockAfterSeconds) == 0 { isLocked = true }
+    }
 
     func willEnterForeground() {
-        guard isEnabled else { isLocked = false; return }
+        guard isEnabled else { isLocked = false; backgroundedAt = nil; return }
+        // חוזרים מחלון ה-Face ID עצמו — לא רלוונטי
+        guard !isAuthenticating else { return }
         let grace = TimeInterval(UserDefaults.standard.integer(forKey: AppSettings.Key.lockAfterSeconds))
         if let t = backgroundedAt, Date.now.timeIntervalSince(t) >= grace { isLocked = true }
+        // מאפסים — אחרת כל מעבר inactive→active (מרכז בקרה, Face ID) היה נועל מחדש לפי יציאה ישנה לרקע
+        backgroundedAt = nil
     }
 
     func unlock() async {
         guard isEnabled else { isLocked = false; return }
+        guard isLocked, !isAuthenticating else { return }
+        isAuthenticating = true
+        defer { isAuthenticating = false }
         let ctx = LAContext()
         ctx.localizedCancelTitle = "ביטול"
         do {
             // deviceOwnerAuthentication = ביומטרי עם נפילה לקוד המכשיר
             let ok = try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "פתיחת נתוני הכספים שלך")
-            if ok { isLocked = false; lastError = nil }
+            if ok { isLocked = false; lastError = nil; backgroundedAt = nil }
+        } catch let e as LAError {
+            switch e.code {
+            // ביטול ע״י המשתמש או ע״י המערכת (שיחה נכנסת, מעבר אפליקציה, האפליקציה עוד לא פעילה) — לא שגיאה, פשוט מנסים שוב
+            case .userCancel, .systemCancel, .appCancel, .notInteractive:
+                lastError = nil
+            case .biometryLockout:
+                lastError = "Face ID ננעל אחרי כמה ניסיונות. לחץ שוב כדי להיכנס עם קוד המכשיר."
+            default:
+                lastError = e.localizedDescription
+            }
         } catch {
-            lastError = (error as? LAError)?.code == .userCancel ? nil : error.localizedDescription
+            lastError = error.localizedDescription
         }
     }
 

@@ -13,16 +13,16 @@ struct HomeView: View {
     @AppStorage(AppSettings.Key.monthlySavingsMinor) private var savingsMinor = 0
     @AppStorage(AppSettings.Key.partnerShareBP) private var partnerBP = 0
 
-    /// מרחב תצוגה: הכול / עסקי / אישי
-    @AppStorage("homeSpace") private var spaceRaw = "all"
-    private var space: Scope? { Scope(rawValue: spaceRaw) }
+    /// מרחב תצוגה: עסקי / אישי (ערך ישן "all" נפתח כעסקי)
+    @AppStorage("homeSpace") private var spaceRaw = Scope.business.rawValue
+    @State private var showReceiptCapture = false
+    private var space: Scope { Scope(rawValue: spaceRaw) ?? .business }
 
     /// נתונים מסוננים לפי המרחב: חשבונות של המרחב, ותנועות של המרחב או שנוגעות בחשבונות שלו
     private var scoped: (accounts: [AccountSnapshot], entries: [EntrySnapshot], rules: [RecurringSnapshot]) {
         let accs = accounts.map(\.snapshot)
         let ents = entries.map(\.snapshot)
         let rls = rules.map(\.snapshot)
-        guard let space else { return (accs, ents, rls) }
         let ids = Set(accs.filter { $0.scope == space }.map(\.id))
         return (accs.filter { $0.scope == space },
                 ents.filter { $0.scope == space || $0.accountID.map { ids.contains($0) } == true || $0.toAccountID.map { ids.contains($0) } == true },
@@ -39,8 +39,7 @@ struct HomeView: View {
     }
 
     private var spacePicker: some View {
-        Picker("מרחב", selection: $spaceRaw) {
-            Text("הכול").tag("all")
+        Picker("מרחב", selection: Binding(get: { space.rawValue }, set: { spaceRaw = $0 })) {
             Text("🐾 עסקי").tag(Scope.business.rawValue)
             Text("👤 אישי").tag(Scope.personal.rawValue)
         }
@@ -68,20 +67,7 @@ struct HomeView: View {
                     }.card()
                 }
                 if d.pendingReviewCount > 0 { pendingCard(d.pendingReviewCount) }
-                if space != .personal {
-                HStack(spacing: 12) {
-                    NavigationLink { ReceiptsListView() } label: {
-                        Label("הקבלות שלי", systemImage: "doc.text.fill").font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.bordered)
-                    NavigationLink { VatReportView() } label: {
-                        Label("מע״מ ומרום", systemImage: "percent").font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.bordered)
-                }
-                }
+                if space == .business { businessShortcuts }
                 advisorCard
                 monthGrid(d)
                 forecastCard(d)
@@ -92,12 +78,45 @@ struct HomeView: View {
             .padding(.horizontal)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle(space == .business ? "העסק" : (space == .personal ? "הכסף שלי — אישי" : "הכסף שלי"))
+        .navigationTitle(space == .business ? "העסק" : "הכסף שלי — אישי")
+        .sheet(isPresented: $showReceiptCapture) { NavigationStack { ExpenseReceiptCaptureView() } }
         .safeAreaInset(edge: .bottom, spacing: 0) { quickAddBar }
         .sheet(isPresented: $showAddAccount) { NavigationStack { AccountEditorView(account: nil) } }
     }
 
     // MARK: חלקים
+
+    /// קיצורי העסק: דוח דו-חודשי, צילום קבלת הוצאה, קבלות שהופקו, מע״מ ומרום
+    private var businessShortcuts: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+            Button { showReceiptCapture = true } label: {
+                shortcutLabel("צילום קבלת הוצאה", "camera.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            NavigationLink { BusinessPeriodReportView() } label: {
+                shortcutLabel("דוח הכנסות דו-חודשי", "doc.text.magnifyingglass")
+            }
+            .buttonStyle(.bordered)
+            NavigationLink { ExpenseReceiptsListView() } label: {
+                shortcutLabel("קבלות ההוצאות", "tray.full.fill")
+            }
+            .buttonStyle(.bordered)
+            NavigationLink { ReceiptsListView() } label: {
+                shortcutLabel("קבלות שהפקתי", "doc.text.fill")
+            }
+            .buttonStyle(.bordered)
+            NavigationLink { VatReportView() } label: {
+                shortcutLabel("מע״מ ומרום", "percent")
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+
+    private func shortcutLabel(_ title: String, _ symbol: String) -> some View {
+        Label(title, systemImage: symbol).font(.subheadline.weight(.semibold))
+            .lineLimit(2).multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity, minHeight: 48)
+    }
 
     private func balanceCard(_ d: DashboardSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 10) {

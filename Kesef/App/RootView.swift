@@ -70,6 +70,7 @@ struct PrivacyCover: View {
 
 struct LockScreen: View {
     @Environment(AppLock.self) private var lock
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -90,6 +91,12 @@ struct LockScreen: View {
             }
             .padding()
         }
-        .task { await lock.unlock() }
+        // בקשת Face ID רק כשהאפליקציה באמת פעילה על המסך — בקשה בזמן מעבר נכשלת ומציגה שגיאה
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, scenePhase == .active else { return }
+            await lock.unlock()
+        }
     }
 }

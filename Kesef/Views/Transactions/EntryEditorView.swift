@@ -226,6 +226,10 @@ struct EntryEditorView: View {
     private func load() {
         guard let e = existing, title.isEmpty && amountText.isEmpty else {
             if isNew && kind == .income { scope = .business }
+            // הוצאה חדשה מהמסך הראשי — לפי המרחב שפתוח (עסקי / אישי)
+            if isNew && kind == .expense && title.isEmpty && amountText.isEmpty && categoryID == nil {
+                scope = Scope(rawValue: UserDefaults.standard.string(forKey: "homeSpace") ?? "") ?? .personal
+            }
             return
         }
         amountText = MoneyFormat.editString(e.amount)
