@@ -48,7 +48,7 @@ final class MorningService {
         return (id, secret)
     }
 
-    static func isConfigured(_ e: Environment = environment) -> Bool {
+    static func isConfigured(_ e: Environment) -> Bool {
         e == .demo || credentials(e) != nil
     }
 
