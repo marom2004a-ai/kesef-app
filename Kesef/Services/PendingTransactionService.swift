@@ -15,13 +15,17 @@ struct PendingTransactionService {
 
     /// נקרא מה-App Intent. amountText מגיע כטקסט מ-Shortcuts (למשל "₪45.90").
     /// markAutomationRun=false לבדיקה מתוך האפליקציה — כדי לא להציג את האוטומציה כפעילה לפני שרצה באמת מ-Shortcuts.
-    func ingestApplePay(amountText: String?, merchant: String?, cardLabel: String?, externalID: String? = nil,
-                        markAutomationRun: Bool = true) throws -> IngestResult {
+    func ingestApplePay(amountText: String?, merchant: String?, cardLabel: String?, details: String? = nil,
+                        externalID: String? = nil, markAutomationRun: Bool = true) throws -> IngestResult {
         let ledger = Ledger(context: context)
+        let fromText = details.map(WalletTextParser.parse)
         let parsed = amountText.flatMap(AmountParser.parse)?.absolute
-        let amount = (parsed?.isPositive == true) ? parsed : nil
-        let cleanMerchant = merchant?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanCard = cardLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let amount = (parsed?.isPositive == true) ? parsed : fromText?.amount
+        func nonEmpty(_ s: String?) -> String? {
+            let t = s?.trimmingCharacters(in: .whitespacesAndNewlines); return (t?.isEmpty == false) ? t : nil
+        }
+        let cleanMerchant = nonEmpty(merchant) ?? fromText?.merchant
+        let cleanCard = nonEmpty(cardLabel) ?? fromText?.card
         let received = now()
 
         let incoming = IncomingPurchase(amount: amount, merchant: cleanMerchant, cardLabel: cleanCard,
@@ -45,6 +49,7 @@ struct PendingTransactionService {
         entry.cardLabel = (cleanCard?.isEmpty == false) ? cleanCard : nil
         entry.externalRef = externalID
         entry.rawAmountText = amountText
+        if let d = nonEmpty(details) { entry.note = "טקסט מ-Wallet: " + d }
         entry.accountID = accountFor(cardLabel: cleanCard)
         if case .similar(let other) = verdict { entry.possibleDuplicateOfID = other }
         context.insert(entry)

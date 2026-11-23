@@ -18,15 +18,23 @@ struct LogApplePayPurchaseIntent: AppIntent {
     @Parameter(title: "כרטיס", description: "Card / Name מתוך קלט הקיצור")
     var card: String?
 
+    /// כל קלט הקיצור כטקסט אחד — כשאי אפשר לבחור את השדות בנפרד (iOS 26). האפליקציה מחלצת ממנו סכום/בית עסק/כרטיס.
+    @Parameter(title: "פרטי עסקה", description: "קלט הקיצור כולו (Shortcut Input)")
+    var details: String?
+
     static var parameterSummary: some ParameterSummary {
-        Summary("רשום רכישה של \(\.$amount) ב-\(\.$merchant) בכרטיס \(\.$card)")
+        Summary("רשום רכישה מ-\(\.$details)") {
+            \.$amount
+            \.$merchant
+            \.$card
+        }
     }
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let context = Persistence.shared.mainContext
         let service = PendingTransactionService(context: context)
-        let result = try service.ingestApplePay(amountText: amount, merchant: merchant, cardLabel: card)
+        let result = try service.ingestApplePay(amountText: amount, merchant: merchant, cardLabel: card, details: details)
         switch result {
         case .duplicateIgnored:
             return .result(dialog: "הרכישה כבר נרשמה — לא נוצרה כפילות.")
