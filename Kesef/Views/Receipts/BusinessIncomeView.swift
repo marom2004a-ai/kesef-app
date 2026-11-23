@@ -147,7 +147,7 @@ struct BusinessIncomeView: View {
                 TextField("תיאור בקבלה (למשל: אילוף ביתי — 4 מפגשים)", text: $itemDescription)
             }
 
-            Section("תשלום") {
+            Section {
                 Picker("אמצעי תשלום", selection: $payment) {
                     ForEach(MorningPaymentMethod.allCases) { Text($0.label).tag($0) }
                 }
@@ -165,7 +165,7 @@ struct BusinessIncomeView: View {
                 }
                 DatePicker(payment == .cheque ? "תאריך פירעון" : "תאריך", selection: $date, displayedComponents: .date)
                 AccountPicker(title: "נכנס לחשבון", selection: $accountID)
-            } footer: {
+            } header: { Text("תשלום") } footer: {
                 if payment.hasBankDetails { Text("הפרטים יופיעו על הקבלה. בהעברה בנקאית הם לא חובה.") }
             }
 
