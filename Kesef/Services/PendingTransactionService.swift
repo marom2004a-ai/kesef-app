@@ -18,6 +18,13 @@ struct PendingTransactionService {
     func ingestApplePay(amountText: String?, merchant: String?, cardLabel: String?, details: String? = nil,
                         externalID: String? = nil, markAutomationRun: Bool = true) throws -> IngestResult {
         let ledger = Ledger(context: context)
+        // אם כל קלט הקיצור הוכנס בטעות לשדה הסכום (יש בו אותיות) — מתייחסים אליו כ"פרטי עסקה"
+        var details = details
+        var amountText = amountText
+        if let a = amountText, a.contains(where: { $0.isLetter }), details?.isEmpty != false {
+            details = a
+            amountText = nil
+        }
         let fromText = details.map(WalletTextParser.parse)
         let parsed = amountText.flatMap(AmountParser.parse)?.absolute
         let amount = (parsed?.isPositive == true) ? parsed : fromText?.amount
