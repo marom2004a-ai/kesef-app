@@ -41,6 +41,18 @@ struct HomeView: View {
                     }.card()
                 }
                 if d.pendingReviewCount > 0 { pendingCard(d.pendingReviewCount) }
+                HStack(spacing: 12) {
+                    NavigationLink { IssueReceiptView() } label: {
+                        Label("הפקת קבלה", systemImage: "doc.text.fill").font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    NavigationLink { VatReportView() } label: {
+                        Label("מע״מ ומרום", systemImage: "percent").font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                }
                 advisorCard
                 monthGrid(d)
                 forecastCard(d)

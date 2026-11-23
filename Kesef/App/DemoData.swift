@@ -15,7 +15,7 @@ enum DemoMode {
     }
 
     /// מסכים שמוצגים לבד (בלי סרגל הלשוניות)
-    static let standalone: Set<String> = ["recurring", "budgets", "reports", "savings", "accounts", "automation", "settings", "vat", "import", "advisor"]
+    static let standalone: Set<String> = ["recurring", "budgets", "reports", "savings", "accounts", "automation", "settings", "vat", "import", "advisor", "receipt"]
 
     @MainActor @ViewBuilder
     static func standaloneView(_ name: String) -> some View {
@@ -28,6 +28,7 @@ enum DemoMode {
         case "automation": AutomationSetupView()
         case "vat": VatReportView()
         case "advisor": AdvisorChatView()
+        case "receipt": IssueReceiptView()
         case "import": CSVImportView()
         default: SettingsView()
         }
