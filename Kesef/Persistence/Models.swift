@@ -257,10 +257,45 @@ final class IssuedDocument {
     var isReal: Bool { environmentRaw == "production" }
 }
 
+/// לקוח שמור — כדי שבפעם הבאה הכנסה וקבלה יתמלאו לבד (כולל פרטי בנק לצ׳קים/העברות)
+@Model
+final class Client {
+    @Attribute(.unique) var id: UUID
+    var name: String
+    var email: String
+    var phone: String
+    var taxId: String
+    var bankName: String
+    var bankBranch: String
+    var bankAccount: String
+    var preferredPaymentRaw: String?
+    var defaultCategoryID: UUID?
+    var defaultDescription: String
+    var lastAmountMinor: Int64
+    var useCount: Int
+    var lastUsedAt: Date
+    var note: String
+    var createdAt: Date
+
+    init(name: String) {
+        self.id = UUID(); self.name = name; self.email = ""; self.phone = ""; self.taxId = ""
+        self.bankName = ""; self.bankBranch = ""; self.bankAccount = ""; self.preferredPaymentRaw = nil
+        self.defaultCategoryID = nil; self.defaultDescription = ""; self.lastAmountMinor = 0; self.useCount = 0
+        self.lastUsedAt = .now; self.note = ""; self.createdAt = .now
+    }
+
+    var preferredPayment: MorningPaymentMethod? {
+        get { preferredPaymentRaw.flatMap(MorningPaymentMethod.init(rawValue:)) }
+        set { preferredPaymentRaw = newValue?.rawValue }
+    }
+    var lastAmount: Money { Money(minorUnits: lastAmountMinor) }
+    var hasBankDetails: Bool { !bankName.isEmpty || !bankAccount.isEmpty }
+}
+
 enum KesefSchema {
     static let models: [any PersistentModel.Type] = [
         Account.self, Category.self, Entry.self, RecurringRule.self, Budget.self,
-        SavingsGoal.self, ExpenseTemplate.self, CardAlias.self, IssuedDocument.self
+        SavingsGoal.self, ExpenseTemplate.self, CardAlias.self, IssuedDocument.self, Client.self
     ]
 }
 

@@ -10,10 +10,13 @@ struct BusinessIncomeView: View {
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \Category.sortOrder) private var categories: [Category]
     @Query(sort: \Account.sortOrder) private var accounts: [Account]
+    @Query(sort: \Client.lastUsedAt, order: .reverse) private var clients: [Client]
     @AppStorage(MorningService.envKey) private var envRaw = MorningService.Environment.demo.rawValue
     @AppStorage(AppSettings.Key.vatRegistered) private var vatRegistered = true
 
     var awaiting: Entry? = nil
+    /// פתיחה ממסך הלקוח — ממלא את פרטיו
+    var prefillClientID: UUID? = nil
 
     @State private var docType: MorningDocType = .taxInvoiceReceipt
     @State private var amountText = ""
@@ -39,6 +42,11 @@ struct BusinessIncomeView: View {
     @State private var savedWithoutReceipt = false
     @State private var showSettings = false
     @State private var loaded = false
+    @State private var saveClient = true
+    @State private var selectedClientID: UUID?
+
+    /// תשלום נכנס (SMS) שעוד לא אושר
+    private var isPendingIncome: Bool { awaiting?.status == .pendingReview }
 
     private var env: MorningService.Environment { MorningService.Environment(rawValue: envRaw) ?? .demo }
     /// הפקה אמיתית אפשרית רק במצב אמיתי עם מפתחות
@@ -53,6 +61,7 @@ struct BusinessIncomeView: View {
 
     private var draft: MorningDocumentDraft {
         MorningDocumentDraft(type: docType, clientName: clientName, clientEmail: clientEmail, clientPhone: clientPhone,
+                             clientTaxId: clients.first { $0.id == selectedClientID }?.taxId,
                              itemDescription: itemDescription.isEmpty ? (incomeCategories.first { $0.id == categoryID }?.name ?? "") : itemDescription,
                              amountIncludingVAT: amount ?? .zero, vatExempt: !vatRegistered,
                              payment: payment, date: date, remarks: remarks, bankDetails: bankDetails)
@@ -102,13 +111,19 @@ struct BusinessIncomeView: View {
                 }
             }
 
-            Section("לקוח") {
+            Section {
                 TextField("שם הלקוח", text: $clientName)
+                    .onChange(of: clientName) { _, n in
+                        if let c = clients.first(where: { $0.id == selectedClientID }), c.name != n { selectedClientID = nil }
+                    }
+                clientSuggestions
                 TextField("מייל — הקבלה תישלח אליו (לא חובה)", text: $clientEmail)
                     .keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .environment(\.layoutDirection, .leftToRight)
                 TextField("נייד (לא חובה)", text: $clientPhone).keyboardType(.phonePad)
-            }
+                Toggle("לשמור את הלקוח לפעם הבאה", isOn: $saveClient)
+            } header: { Text("לקוח") }
+              footer: { if selectedClientID != nil { Text("הפרטים מולאו מהלקוח השמור — אפשר לשנות.") } }
 
             Section("שירות") {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -154,10 +169,13 @@ struct BusinessIncomeView: View {
                 if payment.hasBankDetails { Text("הפרטים יופיעו על הקבלה. בהעברה בנקאית הם לא חובה.") }
             }
 
-            if awaiting == nil && !canIssueReal {
+            if (awaiting == nil || isPendingIncome) && !canIssueReal {
                 Section {
                     Toggle("כבר הוצאתי קבלה מחוץ לאפליקציה", isOn: $issuedElsewhere)
                 }
+            }
+            if let raw = awaiting?.rawAmountText, awaiting?.source == .incomingPayment {
+                Section("ההודעה שהתקבלה") { Text(raw).font(.footnote).foregroundStyle(Theme.mutedText) }
             }
             Section { TextField("הערות בקבלה (לא חובה)", text: $remarks, axis: .vertical) }
 
@@ -173,8 +191,12 @@ struct BusinessIncomeView: View {
                 .disabled(sending)
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
-                if awaiting != nil && !canIssueReal {
+                if awaiting != nil && !canIssueReal && !isPendingIncome {
                     Button("סימון שהקבלה הופקה ידנית") { markManual() }
+                        .frame(maxWidth: .infinity)
+                }
+                if isPendingIncome {
+                    Button("לא הכנסה של העסק — דחייה", role: .destructive) { rejectPending() }
                         .frame(maxWidth: .infinity)
                 }
             } footer: { Text(footerText) }
@@ -187,14 +209,74 @@ struct BusinessIncomeView: View {
         }
     }
 
+    /// לקוחות שמורים: בלי שם — האחרונים; עם שם — התאמות
+    @ViewBuilder private var clientSuggestions: some View {
+        let q = clientName.trimmingCharacters(in: .whitespaces)
+        let list = q.isEmpty ? Array(clients.prefix(8))
+            : Array(clients.filter { $0.name.localizedCaseInsensitiveContains(q) && $0.name != q }.prefix(5))
+        if !list.isEmpty && selectedClientID == nil {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(list) { c in
+                        Button { apply(c) } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "person.crop.circle.fill").foregroundStyle(Theme.gold)
+                                Text(c.name).lineLimit(1)
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(Theme.surfaceHigh, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private func apply(_ c: Client) {
+        selectedClientID = c.id
+        clientName = c.name
+        clientEmail = c.email
+        clientPhone = c.phone
+        bankName = c.bankName; bankBranch = c.bankBranch; bankAccount = c.bankAccount
+        if let p = c.preferredPayment { payment = p }
+        if let cat = c.defaultCategoryID, incomeCategories.contains(where: { $0.id == cat }) { categoryID = cat }
+        if !c.defaultDescription.isEmpty { itemDescription = c.defaultDescription }
+        if amountText.isEmpty && c.lastAmount.isPositive { amountText = MoneyFormat.editString(c.lastAmount) }
+    }
+
+    /// שמירה/עדכון של הלקוח אחרי הכנסה (לפי שם)
+    private func rememberClient(amount: Money) {
+        let name = clientName.trimmingCharacters(in: .whitespaces)
+        guard saveClient, !name.isEmpty else { return }
+        let c = clients.first { $0.id == selectedClientID } ?? clients.first { $0.name == name } ?? {
+            let n = Client(name: name); context.insert(n); return n
+        }()
+        c.name = name
+        c.email = clientEmail.trimmingCharacters(in: .whitespaces)
+        c.phone = clientPhone.trimmingCharacters(in: .whitespaces)
+        if payment.hasBankDetails && (!bankName.isEmpty || !bankAccount.isEmpty) {
+            c.bankName = bankName; c.bankBranch = bankBranch; c.bankAccount = bankAccount
+        }
+        c.preferredPayment = payment
+        c.defaultCategoryID = categoryID
+        c.defaultDescription = itemDescription.trimmingCharacters(in: .whitespaces)
+        c.lastAmountMinor = amount.minorUnits
+        c.useCount += 1
+        c.lastUsedAt = .now
+    }
+
     private var statusText: String {
         if canIssueReal { return "morning מחובר — תופק קבלה רשמית" }
+        if isPendingIncome { return "תשלום נכנס — בדוק את הפרטים ואשר" }
         return awaiting == nil ? "morning עוד לא מחובר — ההכנסה תישמר ותחכה לקבלה" : "morning עוד לא מחובר — אי אפשר להפיק עכשיו"
     }
 
     private var primaryTitle: String {
         if sending { return "מפיק…" }
-        if canIssueReal { return awaiting == nil ? "שמירה והפקת קבלה" : "הפקת קבלה" }
+        if canIssueReal { return awaiting == nil ? "שמירה והפקת קבלה" : (isPendingIncome ? "אישור והפקת קבלה" : "הפקת קבלה") }
+        if isPendingIncome { return "אישור ההכנסה" }
         return awaiting == nil ? "שמירת ההכנסה" : "חיבור morning"
     }
 
@@ -243,6 +325,7 @@ struct BusinessIncomeView: View {
         loaded = true
         if !vatRegistered { docType = .receipt }
         if accountID == nil { accountID = accounts.first { $0.kind == .businessBank }?.id }
+        if let id = prefillClientID, let c = clients.first(where: { $0.id == id }) { apply(c) }
         guard let e = awaiting else { return }
         amountText = MoneyFormat.editString(e.amount)
         date = e.date
@@ -250,11 +333,18 @@ struct BusinessIncomeView: View {
         accountID = e.accountID ?? accountID
         let parts = e.title.components(separatedBy: " — ")
         if parts.count >= 2 { clientName = parts[0]; itemDescription = parts.dropFirst().joined(separator: " — ") }
-        else { itemDescription = e.title }
+        else if e.source != .incomingPayment { itemDescription = e.title }
         for line in e.note.components(separatedBy: "\n") {
             if line.hasPrefix("לקוח: ") { clientName = String(line.dropFirst(6)) }
             if line.hasPrefix("מייל: ") { clientEmail = String(line.dropFirst(6)) }
             if line.hasPrefix("נייד: ") { clientPhone = String(line.dropFirst(6)) }
+        }
+        // תשלום נכנס: אם המשלם הוא לקוח שמור — ממלאים את פרטיו
+        if e.source == .incomingPayment, !clientName.isEmpty,
+           let c = clients.first(where: { $0.name == clientName || $0.name.contains(clientName) || clientName.contains($0.name) }) {
+            let keepAmount = amountText
+            apply(c)
+            if !keepAmount.isEmpty && keepAmount != "0" { amountText = keepAmount }
         }
         switch e.paymentMethod {
         case .cash: payment = .cash
@@ -274,6 +364,7 @@ struct BusinessIncomeView: View {
             do { try draft.validate(); confirming = true } catch { self.error = message(for: error) }
             return
         }
+        if isPendingIncome { confirmPending(amount: a); return }
         if awaiting != nil { showSettings = true; return }
         saveIncome(amount: a)
     }
@@ -301,6 +392,7 @@ struct BusinessIncomeView: View {
         e.note = noteLines().joined(separator: "\n")
         if issuedElsewhere { e.externalRef = IncomeReceipts.manualRef }
         context.insert(e)
+        rememberClient(amount: amount)
         do {
             try context.save()
             savedWithoutReceipt = true
@@ -317,6 +409,45 @@ struct BusinessIncomeView: View {
         if payment.hasBankDetails && !reference.isEmpty { lines.append("אסמכתא: \(reference)") }
         if !remarks.isEmpty { lines.append(remarks) }
         return lines
+    }
+
+    /// מעדכן הכנסה קיימת לפי הטופס ומאשר אותה
+    private func applyForm(to e: Entry, amount: Money) {
+        let desc = draft.itemDescription.trimmingCharacters(in: .whitespaces)
+        let client = clientName.trimmingCharacters(in: .whitespaces)
+        e.amount = amount
+        e.title = client.isEmpty ? (desc.isEmpty ? "הכנסה" : desc) : (desc.isEmpty ? client : "\(client) — \(desc)")
+        e.categoryID = categoryID
+        e.accountID = accountID
+        e.date = date
+        e.paymentMethod = payment.ledgerMethod
+        let message = e.source == .incomingPayment ? (e.rawAmountText.map { ["הודעה: " + $0] } ?? []) : []
+        e.note = (noteLines() + message).joined(separator: "\n")
+        if e.status != .confirmed { e.status = .confirmed; e.confirmedAt = .now }
+        e.updatedAt = .now
+    }
+
+    private func confirmPending(amount: Money) {
+        guard let e = awaiting else { return }
+        applyForm(to: e, amount: amount)
+        if issuedElsewhere { e.externalRef = IncomeReceipts.manualRef }
+        rememberClient(amount: amount)
+        do {
+            try context.save()
+            NotificationService.removePendingNotification(entryID: e.id)
+            savedWithoutReceipt = true
+            Task { await AppLifecycle.refresh() }
+        } catch { self.error = "השמירה נכשלה: \(error.localizedDescription)" }
+    }
+
+    private func rejectPending() {
+        guard let e = awaiting else { return }
+        e.status = .cancelled
+        e.updatedAt = .now
+        try? context.save()
+        NotificationService.removePendingNotification(entryID: e.id)
+        Task { await AppLifecycle.refresh() }
+        dismiss()
     }
 
     private func markManual() {
@@ -336,6 +467,7 @@ struct BusinessIncomeView: View {
                 let entry: Entry?
                 if let e = awaiting {
                     // הכנסה שכבר רשומה — רק מקשרים אליה את המסמך (לא נרשמת פעמיים)
+                    if e.status == .pendingReview { applyForm(to: e, amount: d.amountIncludingVAT) }
                     e.externalRef = "morning:\(doc.id)"
                     e.note = (["\(d.type.label) מס׳ \(doc.number)"] + (doc.url.map { [$0.absoluteString] } ?? []) + [e.note])
                         .filter { !$0.isEmpty }.joined(separator: "\n")
@@ -351,6 +483,7 @@ struct BusinessIncomeView: View {
                                            url: doc.url, environment: env.rawValue)
                 saved.entryID = entry?.id
                 context.insert(saved)
+                rememberClient(amount: d.amountIncludingVAT)
                 try context.save()
                 created = doc
                 Task { await AppLifecycle.refresh() }

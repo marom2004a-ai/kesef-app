@@ -22,7 +22,7 @@ struct MoreView: View {
                 NavigationLink { BackupView() } label: { Label("גיבוי ושחזור", systemImage: "externaldrive") }
             }
             Section("הגדרות") {
-                NavigationLink { AutomationSetupView() } label: { Label("אוטומציית Apple Pay", systemImage: "wallet.pass") }
+                NavigationLink { AutomationSetupView() } label: { Label("אוטומציות — Apple Pay וביט", systemImage: "wallet.pass") }
                 NavigationLink { PartnerSettingsView() } label: { Label("שותף וחלוקת רווחים", systemImage: "person.2") }
                 NavigationLink { SettingsView() } label: { Label("הגדרות כלליות ואבטחה", systemImage: "gearshape") }
             }
@@ -38,6 +38,8 @@ struct SettingsView: View {
     @AppStorage(AppSettings.Key.defaultApplePayScope) private var defaultScopeRaw = Scope.personal.rawValue
     @AppStorage(AppSettings.Key.faceIDEnabled) private var faceID = false
     @AppStorage(AppSettings.Key.lockAfterSeconds) private var lockAfter = 0
+    @AppStorage(AppSettings.Key.drawReminderEnabled) private var drawReminder = true
+    @AppStorage(AppSettings.Key.drawDay) private var drawDay = 10
     @AppStorage(AppSettings.Key.billRemindersEnabled) private var billReminders = true
     @AppStorage(AppSettings.Key.budgetAlertsEnabled) private var budgetAlerts = true
     @AppStorage(AppSettings.Key.reserveMinor) private var reserveMinor = 0
@@ -108,6 +110,12 @@ struct SettingsView: View {
                 Toggle("תזכורות לפני חיובים קבועים", isOn: $billReminders)
                     .onChange(of: billReminders) { _, _ in Task { await NotificationService.rescheduleBillReminders(context: context) } }
                 Toggle("התראות תקציב", isOn: $budgetAlerts)
+                Toggle("תזכורת להעברה החודשית לעצמי", isOn: $drawReminder)
+                    .onChange(of: drawReminder) { _, _ in Task { await NotificationService.scheduleDrawReminder(context: context) } }
+                if drawReminder {
+                    Stepper("ביום \(drawDay) בחודש", value: $drawDay, in: 1...28)
+                        .onChange(of: drawDay) { _, _ in Task { await NotificationService.scheduleDrawReminder(context: context) } }
+                }
             }
 
             Section {

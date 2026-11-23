@@ -30,10 +30,16 @@ struct BackupService {
     struct TemplateDTO: Codable { var id: UUID; var title: String; var amount: Int64; var scope: String; var categoryID: UUID?
         var accountID: UUID?; var paymentMethod: String?; var useCount: Int }
     struct AliasDTO: Codable { var id: UUID; var walletLabel: String; var accountID: UUID }
+    struct ClientDTO: Codable { var id: UUID; var name: String; var email: String; var phone: String; var taxId: String
+        var bankName: String; var bankBranch: String; var bankAccount: String; var preferredPayment: String?
+        var defaultCategoryID: UUID?; var defaultDescription: String; var lastAmount: Int64; var useCount: Int
+        var lastUsedAt: Date; var note: String; var createdAt: Date }
 
     struct Payload: Codable {
         var accounts: [AccountDTO]; var categories: [CategoryDTO]; var entries: [EntryDTO]; var rules: [RuleDTO]
         var budgets: [BudgetDTO]; var goals: [GoalDTO]; var templates: [TemplateDTO]; var aliases: [AliasDTO]
+        /// לקוחות שמורים (גיבויים ישנים — בלי השדה)
+        var clients: [ClientDTO]? = nil
     }
     struct BackupFile: Codable {
         var format: String
@@ -99,7 +105,13 @@ struct BackupService {
                 monthly: $0.monthlyContributionMinor, targetDate: $0.targetDate, accountID: $0.accountID, createdAt: $0.createdAt) },
             templates: l.templates().map { TemplateDTO(id: $0.id, title: $0.title, amount: $0.amountMinor, scope: $0.scopeRaw,
                 categoryID: $0.categoryID, accountID: $0.accountID, paymentMethod: $0.paymentMethodRaw, useCount: $0.useCount) },
-            aliases: l.cardAliases().map { AliasDTO(id: $0.id, walletLabel: $0.walletLabel, accountID: $0.accountID) })
+            aliases: l.cardAliases().map { AliasDTO(id: $0.id, walletLabel: $0.walletLabel, accountID: $0.accountID) },
+            clients: ((try? context.fetch(FetchDescriptor<Client>())) ?? []).map {
+                ClientDTO(id: $0.id, name: $0.name, email: $0.email, phone: $0.phone, taxId: $0.taxId, bankName: $0.bankName,
+                          bankBranch: $0.bankBranch, bankAccount: $0.bankAccount, preferredPayment: $0.preferredPaymentRaw,
+                          defaultCategoryID: $0.defaultCategoryID, defaultDescription: $0.defaultDescription,
+                          lastAmount: $0.lastAmountMinor, useCount: $0.useCount, lastUsedAt: $0.lastUsedAt, note: $0.note, createdAt: $0.createdAt)
+            })
     }
 
     /// יוצר קובץ גיבוי בתיקייה הזמנית ומחזיר את הכתובת לשיתוף/שמירה
@@ -162,6 +174,7 @@ struct BackupService {
         l.goals().forEach { context.delete($0) }
         l.templates().forEach { context.delete($0) }
         l.cardAliases().forEach { context.delete($0) }
+        if file.payload.clients != nil { ((try? context.fetch(FetchDescriptor<Client>())) ?? []).forEach { context.delete($0) } }
         try context.save()
         // שלב 2: הכנסת הנתונים מהגיבוי
         do {
@@ -213,6 +226,14 @@ struct BackupService {
                 context.insert(m)
             }
             for a in p.aliases { let m = CardAlias(walletLabel: a.walletLabel, accountID: a.accountID); m.id = a.id; context.insert(m) }
+            for c in p.clients ?? [] {
+                let m = Client(name: c.name)
+                m.id = c.id; m.email = c.email; m.phone = c.phone; m.taxId = c.taxId; m.bankName = c.bankName
+                m.bankBranch = c.bankBranch; m.bankAccount = c.bankAccount; m.preferredPaymentRaw = c.preferredPayment
+                m.defaultCategoryID = c.defaultCategoryID; m.defaultDescription = c.defaultDescription; m.lastAmountMinor = c.lastAmount
+                m.useCount = c.useCount; m.lastUsedAt = c.lastUsedAt; m.note = c.note; m.createdAt = c.createdAt
+                context.insert(m)
+            }
             try context.save()
             return safetyURL
         } catch {

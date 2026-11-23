@@ -125,7 +125,7 @@ public enum Certainty: String, Codable, CaseIterable, Sendable, Identifiable {
 }
 
 public enum EntrySource: String, Codable, CaseIterable, Sendable {
-    case manual, applePayShortcut, csvImport, recurring, siri, backup
+    case manual, applePayShortcut, csvImport, recurring, siri, backup, incomingPayment
     public var label: String {
         switch self {
         case .manual: return "הזנה ידנית"
@@ -134,6 +134,7 @@ public enum EntrySource: String, Codable, CaseIterable, Sendable {
         case .recurring: return "חיוב קבוע"
         case .siri: return "Siri / קיצור דרך"
         case .backup: return "שחזור גיבוי"
+        case .incomingPayment: return "תשלום נכנס (SMS)"
         }
     }
 }

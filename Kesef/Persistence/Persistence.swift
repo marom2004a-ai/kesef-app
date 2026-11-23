@@ -162,13 +162,16 @@ enum AppSettings {
         static let vatRegistered = "vatRegistered"
         static let vatRateBP = "vatRateBP"
         static let vatPeriodMonths = "vatPeriodMonths"
+        static let drawDay = "drawDay"
+        static let drawReminderEnabled = "drawReminderEnabled"
     }
 
     /// ברירות מחדל: עוסק מורשה, 18%, דו-חודשי; שותף "מרום" 50% מהרווח
     static func registerDefaults() {
         d.register(defaults: [
             Key.vatRegistered: true, Key.vatRateBP: 1800, Key.vatPeriodMonths: 2,
-            Key.partnerName: "מרום", Key.partnerShareBP: 5000, Key.partnerBasis: PartnerBasis.profit.rawValue
+            Key.partnerName: "מרום", Key.partnerShareBP: 5000, Key.partnerBasis: PartnerBasis.profit.rawValue,
+            Key.drawDay: 10, Key.drawReminderEnabled: true
         ])
     }
 

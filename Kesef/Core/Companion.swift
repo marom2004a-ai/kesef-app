@@ -67,6 +67,8 @@ public struct CompanionInput: Sendable {
     public var missingReceipts: Int = 0
     /// הכנסות עסקיות שעוד לא הופקה להן קבלה
     public var incomesAwaitingReceipt: Int = 0
+    /// הגיע יום ההעברה החודשית ונשאר להעביר לעצמי
+    public var drawDue: Money = .zero
     public var receiptStreak: Int = 0
     /// שינוי ברווח (עסקי) או בנטו (אישי) מול החודש הקודם, בנקודות בסיס
     public var changeBP: Int?
@@ -77,7 +79,8 @@ public struct CompanionInput: Sendable {
 
     public init(isBusiness: Bool, pendingCount: Int = 0, missingReceipts: Int = 0, receiptStreak: Int = 0, changeBP: Int? = nil,
                 isRecordMonth: Bool = false, savedThisMonth: Money = .zero, savingsTarget: Money = .zero, dayOfMonth: Int = 15,
-                incomesAwaitingReceipt: Int = 0) {
+                incomesAwaitingReceipt: Int = 0, drawDue: Money = .zero) {
+        self.drawDue = drawDue
         self.isBusiness = isBusiness; self.pendingCount = pendingCount; self.missingReceipts = missingReceipts
         self.incomesAwaitingReceipt = incomesAwaitingReceipt
         self.receiptStreak = receiptStreak; self.changeBP = changeBP; self.isRecordMonth = isRecordMonth
@@ -92,6 +95,9 @@ public enum CompanionAdvisor {
             return .init(mood: .alert, text: i.pendingCount == 1
                 ? "יש רכישה אחת שמחכה לאישור שלך. שתי שניות וסיימנו!"
                 : "יש \(i.pendingCount) רכישות שמחכות לאישור. בוא נסדר אותן!")
+        }
+        if !i.isBusiness && i.drawDue.isPositive {
+            return .init(mood: .happy, text: "הגיע הזמן להעביר לעצמך מהעסק — מגיע לך \(MoneyFormat.string(i.drawDue)). לחץ על ״הכנסה״ 💸")
         }
         if i.isBusiness && i.incomesAwaitingReceipt > 0 {
             return .init(mood: .alert, text: i.incomesAwaitingReceipt == 1
@@ -123,5 +129,42 @@ public enum CompanionAdvisor {
             return .init(mood: .proud, text: "\(i.receiptStreak) קבלות ברצף! רואה החשבון יאהב אותך.")
         }
         return .init(mood: .calm, text: i.isBusiness ? "הכול מסודר. אני פה אם צריך משהו 🐾" : "הכול רגוע. תלחץ עליי לייעוץ 🐾")
+    }
+}
+
+// MARK: - העברה חודשית לעצמי ("הכנסה מהעסק")
+
+public struct DrawSuggestion: Hashable, Sendable {
+    /// החודש שעל הרווח שלו מחושב החלק
+    public var profitMonth: Date
+    /// החלק שלי מרווח החודש הקודם (אחרי מע״מ ואחרי חלק השותף)
+    public var myShare: Money
+    /// כמה כבר הועבר אליי החודש
+    public var drawnThisMonth: Money
+    /// מה שנשאר להעביר (לא שלילי)
+    public var remaining: Money { let r = myShare - drawnThisMonth; return r.isPositive ? r : .zero }
+}
+
+public enum OwnerDrawPlanner {
+    public static func suggestion(entries: [EntrySnapshot], now: Date, vat: VatSettings, deductibleBP: [UUID: Int] = [:],
+                                  partnerShareBP: Int, calendar cal: FinanceCalendar = .israel) -> DrawSuggestion {
+        let thisMonth = cal.startOfMonth(now)
+        let prev = cal.addMonths(-1, to: thisMonth)
+        let st = VatEngine.statement(entries: entries, period: prev..<thisMonth, settings: vat, deductibleBP: deductibleBP, calendar: cal)
+        let mine = max(0, min(10_000, 10_000 - partnerShareBP))
+        let share = st.profitBeforeTax.isPositive ? st.profitBeforeTax.multiplied(byBasisPoints: mine) : .zero
+        let month = cal.monthRange(now)
+        let drawn = entries.filter { $0.kind == .ownerDraw && $0.status == .confirmed && month.contains($0.date) }.map(\.amount).sum()
+        return DrawSuggestion(profitMonth: prev, myShare: share, drawnThisMonth: drawn)
+    }
+
+    /// מועד התזכורת הבא: יום drawDay בשעה 9:00 — החודש אם עוד לא עבר, אחרת בחודש הבא
+    public static func nextReminder(after now: Date, drawDay: Int, calendar cal: FinanceCalendar = .israel) -> Date {
+        func at(_ monthStart: Date) -> Date {
+            let day = cal.date(inMonthOf: monthStart, day: drawDay)
+            return cal.calendar.date(byAdding: .hour, value: 9, to: cal.startOfDay(day)) ?? day
+        }
+        let thisMonth = at(cal.startOfMonth(now))
+        return thisMonth > now ? thisMonth : at(cal.addMonths(1, to: cal.startOfMonth(now)))
     }
 }

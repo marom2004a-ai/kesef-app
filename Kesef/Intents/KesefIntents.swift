@@ -50,6 +50,50 @@ struct LogApplePayPurchaseIntent: AppIntent {
     }
 }
 
+/// תשלום נכנס מלקוח (ביט / פייבוקס / העברה) — מאוטומציית "הודעה" בקיצורים שמעבירה את טקסט ה-SMS.
+/// נוצרת הכנסה עסקית שממתינה לאישור; באישור משלימים לקוח ומפיקים קבלה.
+struct LogIncomingPaymentIntent: AppIntent {
+    static var title: LocalizedStringResource = "רישום תשלום נכנס"
+    static var description = IntentDescription("יוצר הכנסה עסקית שממתינה לאישור והפקת קבלה, מתוך טקסט ההודעה על התשלום.")
+    static var openAppWhenRun: Bool = false
+
+    @Parameter(title: "טקסט ההודעה", description: "תוכן ה-SMS (קלט הקיצור)")
+    var message: String
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("רשום תשלום נכנס מ-\(\.$message)")
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let context = Persistence.shared.mainContext
+        let parsed = IncomingPaymentParser.parse(message)
+        // אותה הודעה פעמיים (האוטומציה רצה שוב) — לא יוצרים כפילות
+        let recent = Ledger(context: context).entries().filter {
+            $0.source == .incomingPayment && $0.createdAt > Date.now.addingTimeInterval(-180) && $0.rawAmountText == message
+        }
+        if !recent.isEmpty { return .result(dialog: "התשלום כבר נקלט.") }
+
+        let payer = parsed.payer ?? ""
+        let e = Entry(kind: .income, status: .pendingReview, amount: parsed.amount ?? .zero, date: .now,
+                      title: payer.isEmpty ? "תשלום נכנס" : payer, scope: .business, source: .incomingPayment)
+        e.rawAmountText = message
+        e.note = (payer.isEmpty ? "" : "לקוח: \(payer)\n") + "הודעה: " + message
+        switch parsed.source {
+        case "Bit": e.paymentMethod = .bit
+        case "PayBox": e.paymentMethod = .bit
+        case "העברה בנקאית": e.paymentMethod = .bankTransfer
+        default: break
+        }
+        e.accountID = Ledger(context: context).accounts().first { $0.kind == .businessBank }?.id
+        context.insert(e)
+        try context.save()
+        await NotificationService.notifyIncomingPayment(entryID: e.id, payer: payer, amount: parsed.amount)
+        await NotificationService.updateBadge(context: context)
+        return .result(dialog: "נקלט תשלום נכנס — ממתין לאישור והפקת קבלה.")
+    }
+}
+
 /// הוספת הוצאה מהירה דרך Siri / קיצור דרך — נשמרת כמאושרת, כי המשתמש הקליד אותה בעצמו.
 struct AddExpenseIntent: AppIntent {
     static var title: LocalizedStringResource = "הוספת הוצאה"
@@ -118,6 +162,10 @@ struct KesefShortcuts: AppShortcutsProvider {
             "מצב כספי ב\(.applicationName)",
             "Money status in \(.applicationName)"
         ], shortTitle: "מצב כספי", systemImageName: "chart.bar")
+        AppShortcut(intent: LogIncomingPaymentIntent(), phrases: [
+            "רשום תשלום נכנס ב\(.applicationName)",
+            "Log incoming payment in \(.applicationName)"
+        ], shortTitle: "רישום תשלום נכנס", systemImageName: "arrow.down.circle")
         AppShortcut(intent: LogApplePayPurchaseIntent(), phrases: [
             "רשום רכישה ב\(.applicationName)",
             "Log Apple Pay purchase in \(.applicationName)"

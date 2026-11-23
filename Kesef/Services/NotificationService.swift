@@ -45,6 +45,17 @@ enum NotificationService {
         try? await center.add(req)
     }
 
+    /// תשלום נכנס מלקוח — לחיצה פותחת אישור והפקת קבלה
+    static func notifyIncomingPayment(entryID: UUID, payer: String, amount: Money?) async {
+        let content = UNMutableNotificationContent()
+        content.title = "התקבל תשלום 💰"
+        let a = amount.map { MoneyFormat.string($0) } ?? "סכום לא זוהה"
+        content.body = "\(payer.isEmpty ? "תשלום נכנס" : payer) · \(a). לחץ לאישור והפקת קבלה."
+        content.sound = .default
+        content.userInfo = [entryIDKey: entryID.uuidString]
+        try? await center.add(UNNotificationRequest(identifier: "pending-\(entryID.uuidString)", content: content, trigger: nil))
+    }
+
     static func updateBadge(context: ModelContext) async {
         let count = Ledger(context: context).pendingCount()
         try? await center.setBadgeCount(count)
@@ -84,6 +95,32 @@ enum NotificationService {
         for (_, r) in requests.prefix(50) {
             try? await center.add(r)
         }
+    }
+
+    static let drawActionKey = "action"
+
+    /// תזכורת חודשית להעברה לעצמי ("הכנסה מהעסק") ביום שנקבע, עם הסכום המוצע
+    static func scheduleDrawReminder(context: ModelContext, now: Date = .now) async {
+        center.removePendingNotificationRequests(withIdentifiers: ["draw-reminder"])
+        let d = UserDefaults.standard
+        guard d.bool(forKey: AppSettings.Key.drawReminderEnabled) else { return }
+        let cal = FinanceCalendar.israel
+        let ledger = Ledger(context: context)
+        let fire = OwnerDrawPlanner.nextReminder(after: now, drawDay: max(1, min(28, d.integer(forKey: AppSettings.Key.drawDay))), calendar: cal)
+        // ההצעה מחושבת לפי מועד התזכורת (רווח החודש שלפניו)
+        let s = OwnerDrawPlanner.suggestion(entries: ledger.entries().map(\.snapshot), now: fire, vat: AppSettings.vat,
+                                            deductibleBP: Dictionary(uniqueKeysWithValues: ledger.categories().map { ($0.id, $0.vatDeductibleBP) }),
+                                            partnerShareBP: AppSettings.partner.shareBasisPoints, calendar: cal)
+        let content = UNMutableNotificationContent()
+        content.title = "היום מעבירים לעצמך 💸"
+        content.body = s.myShare.isPositive
+            ? "החלק שלך מהרווח של \(Fmt.monthYear(s.profitMonth)): \(MoneyFormat.string(s.myShare)). לחץ לרישום."
+            : "הגיע היום להעברה החודשית מהעסק. לחץ לרישום."
+        content.sound = .default
+        content.userInfo = [drawActionKey: "draw"]
+        let comps = cal.calendar.dateComponents([.year, .month, .day, .hour, .minute], from: fire)
+        try? await center.add(UNNotificationRequest(identifier: "draw-reminder", content: content,
+                                                    trigger: UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)))
     }
 
     /// התראת תקציב — פעם אחת לכל רמה בחודש

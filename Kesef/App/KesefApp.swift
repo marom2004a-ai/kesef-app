@@ -78,6 +78,7 @@ enum AppLifecycle {
         await NotificationService.updateBadge(context: context)
         await NotificationService.rescheduleBillReminders(context: context)
         await NotificationService.checkBudgets(context: context)
+        await NotificationService.scheduleDrawReminder(context: context)
     }
 }
 
@@ -97,6 +98,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     // לחיצה על התראה או על פעולה בה
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
+        if info["action"] as? String == "draw" {
+            await MainActor.run {
+                UserDefaults.standard.set(Scope.personal.rawValue, forKey: "homeSpace")
+                AppRouter.shared.selectedTab = .home
+                AppRouter.shared.showQuickAdd = .income
+            }
+            return
+        }
         guard let idString = info["entryID"] as? String, let id = UUID(uuidString: idString) else { return }
         await Self.handle(entryID: id, action: response.actionIdentifier)
     }

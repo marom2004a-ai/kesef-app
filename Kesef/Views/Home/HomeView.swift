@@ -69,6 +69,9 @@ struct HomeView: View {
         let missing = inPeriod.filter { $0.receiptImage == nil }.count
         let streak = Streaks.receipts(hasReceiptNewestFirst: bizExpenses.prefix(60).map { $0.receiptImage != nil })
 
+        let drawDay = UserDefaults.standard.integer(forKey: AppSettings.Key.drawDay)
+        let draw = OwnerDrawPlanner.suggestion(entries: all, now: .now, vat: vat, deductibleBP: deductible, partnerShareBP: partnerBP, calendar: cal)
+        let drawDue = (!isBusiness && drawDay > 0 && cal.day(.now) >= drawDay) ? draw.remaining : .zero
         let since = IncomeReceipts.since
         let awaitingIncome = entries.filter { IncomeReceipts.isAwaiting($0, since: since) }.count
         let share: Money? = (isBusiness && partnerBP > 0 && current.isPositive) ? current.multiplied(byBasisPoints: partnerBP) : nil
@@ -77,7 +80,7 @@ struct HomeView: View {
             isBusiness: isBusiness, pendingCount: d.pendingReviewCount, missingReceipts: missing, receiptStreak: streak,
             changeBP: MonthlySeries.changeBP(current: current, previous: previous), isRecordMonth: MonthlySeries.isRecord(series),
             savedThisMonth: saved, savingsTarget: Money(minorUnits: Int64(savingsMinor)), dayOfMonth: cal.day(.now),
-            incomesAwaitingReceipt: awaitingIncome))
+            incomesAwaitingReceipt: awaitingIncome, drawDue: drawDue))
 
         return Model(dashboard: d, series: series, headline: isBusiness ? current : d.safeToSpend,
                      changeBP: MonthlySeries.changeBP(current: current, previous: previous), isRecord: MonthlySeries.isRecord(series),

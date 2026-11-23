@@ -51,7 +51,13 @@ struct PendingInboxView: View {
         }
         .navigationTitle("ממתינות לאישור")
         .kesefScreen()
-        .sheet(item: $reviewing) { e in PendingReviewView(entry: e) }
+        .sheet(item: $reviewing) { e in
+            if e.kind == .income {
+                NavigationStack { BusinessIncomeView(awaiting: e) }
+            } else {
+                PendingReviewView(entry: e)
+            }
+        }
         .onChange(of: router.reviewEntryID) { _, id in openFromRouter(id) }
         .onAppear { openFromRouter(router.reviewEntryID) }
     }

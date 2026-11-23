@@ -43,21 +43,11 @@ struct QuickEntryView: View {
     @AppStorage(AppSettings.Key.partnerShareBP) private var partnerBP = 0
 
     /// הצעה: החלק שלי מרווח החודש הקודם, פחות מה שכבר הועבר אליי החודש
-    private var drawSuggestion: (month: Date, share: Money, drawn: Money, suggested: Money) {
-        let cal = FinanceCalendar.israel
-        let prevStart = cal.addMonths(-1, to: cal.startOfMonth(.now))
-        let snaps = recent.map(\.snapshot)
-        let st = VatEngine.statement(entries: snaps, period: prevStart..<cal.startOfMonth(.now), settings: AppSettings.vat,
-                                     deductibleBP: Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.vatDeductibleBP) }), calendar: cal)
-        let share = st.profitBeforeTax.isPositive ? st.profitBeforeTax.multiplied(byBasisPoints: 10_000 - partnerBP) : .zero
-        let month = cal.monthRange(.now)
-        let drawn = snaps.filter { $0.kind == .ownerDraw && $0.status == .confirmed && month.contains($0.date) }.map(\.amount).sum()
-        let left = share - drawn
-        return (prevStart, share, drawn, left.isPositive ? left : .zero)
+    private var drawSuggestion: DrawSuggestion {
+        OwnerDrawPlanner.suggestion(entries: recent.map(\.snapshot), now: .now, vat: AppSettings.vat,
+                                    deductibleBP: Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.vatDeductibleBP) }),
+                                    partnerShareBP: partnerBP)
     }
-
-    private var amount: Money? { AmountParser.parse(amountText)?.absolute }
-    private var isIncome: Bool { kind == .income }
 
     /// קטגוריות של הסיווג, הנפוצות ביותר קודם (לפי 60 התנועות האחרונות)
     private var chips: [Category] {
@@ -119,16 +109,16 @@ struct QuickEntryView: View {
     private var drawSection: some View {
         let s = drawSuggestion
         return VStack(spacing: 10) {
-            if s.share.isPositive {
+            if s.myShare.isPositive {
                 Button {
-                    amountText = MoneyFormat.editString(s.suggested.isPositive ? s.suggested : s.share)
+                    amountText = MoneyFormat.editString(s.remaining.isPositive ? s.remaining : s.myShare)
                 } label: {
                     HStack {
                         Image(systemName: "wand.and.stars").foregroundStyle(Theme.gold)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("החלק שלך מהרווח של \(Fmt.monthYear(s.month)): \(MoneyFormat.string(s.share))")
+                            Text("החלק שלך מהרווח של \(Fmt.monthYear(s.profitMonth)): \(MoneyFormat.string(s.myShare))")
                                 .font(.subheadline.weight(.semibold))
-                            Text(s.drawn.isPositive ? "כבר הועבר החודש \(MoneyFormat.string(s.drawn)) · לחץ למילוי היתרה" : "לחץ למילוי הסכום")
+                            Text(s.drawnThisMonth.isPositive ? "כבר הועבר החודש \(MoneyFormat.string(s.drawnThisMonth)) · לחץ למילוי היתרה" : "לחץ למילוי הסכום")
                                 .font(.caption).foregroundStyle(Theme.mutedText)
                         }
                         Spacer()

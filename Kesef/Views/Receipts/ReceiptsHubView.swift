@@ -48,6 +48,7 @@ struct ReceiptsHubView: View {
                     HubTile(title: "מע״מ ומרום", symbol: "percent", subtitle: "מה לשלם ומה לחלק") { VatReportView() }
                     HubTile(title: "קבלות ההוצאות", symbol: "tray.full.fill", subtitle: "\(business.filter { $0.receiptImage != nil }.count) צילומים") { ExpenseReceiptsListView() }
                     HubTile(title: "קבלות שהפקתי", symbol: "doc.text.fill", subtitle: "\(docs.filter(\.isReal).count) מסמכים") { ReceiptsListView() }
+                    HubTile(title: "לקוחות", symbol: "person.2.fill", subtitle: "פרטים ובנק שמורים") { ClientsView() }
                     HubTile(title: "דוחות וניתוח", symbol: "chart.bar.xaxis") { ReportsView() }
                     HubTile(title: "ייבוא דוח (אקסל)", symbol: "square.and.arrow.down") { CSVImportView() }
                 }

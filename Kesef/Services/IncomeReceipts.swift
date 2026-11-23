@@ -3,7 +3,6 @@ import Foundation
 /// מעקב אחרי הכנסות עסקיות שעוד לא הופקה להן קבלה.
 /// הכנסה "מכוסה" אם הופק לה מסמך ב-morning (externalRef "morning:…") או שסומן שהקבלה הופקה ידנית ("receipt:manual").
 /// נספרות רק הכנסות שהוזנו ידנית מאז שהמעקב התחיל — לא היסטוריה ולא ייבוא מדוחות.
-@MainActor
 enum IncomeReceipts {
     static let sinceKey = "incomeReceiptsTrackingSince"
     static let manualRef = "receipt:manual"
@@ -23,8 +22,9 @@ enum IncomeReceipts {
         return ref.hasPrefix("morning:") || ref.hasPrefix("receipt:")
     }
 
-    static func isAwaiting(_ e: Entry, since: Date = IncomeReceipts.since) -> Bool {
-        e.scope == .business && e.kind == .income && e.status == .confirmed && e.source == .manual
+    static func isAwaiting(_ e: Entry, since: Date) -> Bool {
+        e.scope == .business && e.kind == .income && e.status == .confirmed
+            && (e.source == .manual || e.source == .incomingPayment)
             && e.createdAt >= since && !hasReceipt(e)
     }
 }

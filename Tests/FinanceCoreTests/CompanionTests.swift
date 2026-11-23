@@ -52,6 +52,8 @@ final class CompanionTests: XCTestCase {
         // הכנסה בלי קבלה קודמת לקבלות הוצאה חסרות, ולא מופיעה בצד האישי
         XCTAssertTrue(CompanionAdvisor.message(.init(isBusiness: true, missingReceipts: 3, incomesAwaitingReceipt: 2)).text.contains("2 הכנסות"))
         XCTAssertFalse(CompanionAdvisor.message(.init(isBusiness: false, incomesAwaitingReceipt: 2)).text.contains("הכנס"))
+        XCTAssertTrue(CompanionAdvisor.message(.init(isBusiness: false, drawDue: ILS(4500))).text.contains("להעביר לעצמך"))
+        XCTAssertFalse(CompanionAdvisor.message(.init(isBusiness: true, drawDue: ILS(4500))).text.contains("להעביר"))
     }
 
     func testOwnerDrawIsPersonalIncomeOnly() {
@@ -66,5 +68,35 @@ final class CompanionTests: XCTestCase {
         // לא משפיע על רווח העסק
         let st = VatEngine.statement(entries: entries, period: month, settings: vat, calendar: cal)
         XCTAssertEqual(st.profitBeforeTax, ILS(10000))
+    }
+}
+
+final class OwnerDrawPlannerTests: XCTestCase {
+    let vat = VatSettings(isRegistered: true, rateBasisPoints: 1800, periodMonths: 2, dueDay: 15)
+
+    func testSuggestionIsMyShareOfLastMonthMinusDrawn() {
+        let entries = [
+            income(ILS(11800), D(2026, 10, 5)),                                  // אוקטובר: 10,000 נטו
+            expense(ILS(1180), D(2026, 10, 7), scope: .business),                // פחות 1,000 נטו → 9,000
+            income(ILS(5900), D(2026, 11, 2)),                                   // נובמבר — לא נכנס
+            EntrySnapshot(kind: .ownerDraw, amount: ILS(1000), date: D(2026, 11, 10), scope: .personal),
+        ]
+        let s = OwnerDrawPlanner.suggestion(entries: entries, now: D(2026, 11, 12), vat: vat, partnerShareBP: 5000, calendar: cal)
+        XCTAssertEqual(cal.calendar.component(.month, from: s.profitMonth), 10)
+        XCTAssertEqual(s.myShare, ILS(4500))
+        XCTAssertEqual(s.drawnThisMonth, ILS(1000))
+        XCTAssertEqual(s.remaining, ILS(3500))
+        // בלי שותף — כל הרווח
+        XCTAssertEqual(OwnerDrawPlanner.suggestion(entries: entries, now: D(2026, 11, 12), vat: vat, partnerShareBP: 0, calendar: cal).myShare, ILS(9000))
+        // חודש הפסדי — אין הצעה
+        let loss = [expense(ILS(500), D(2026, 10, 7), scope: .business)]
+        XCTAssertEqual(OwnerDrawPlanner.suggestion(entries: loss, now: D(2026, 11, 12), vat: vat, partnerShareBP: 5000, calendar: cal).remaining, .zero)
+    }
+
+    func testNextReminderOnTheTenth() {
+        let a = OwnerDrawPlanner.nextReminder(after: D(2026, 11, 3), drawDay: 10, calendar: cal)
+        XCTAssertEqual(cal.calendar.dateComponents([.month, .day, .hour], from: a), DateComponents(month: 11, day: 10, hour: 9))
+        let b = OwnerDrawPlanner.nextReminder(after: D(2026, 11, 10, 12), drawDay: 10, calendar: cal)
+        XCTAssertEqual(cal.calendar.dateComponents([.month, .day, .hour], from: b), DateComponents(month: 12, day: 10, hour: 9))
     }
 }
