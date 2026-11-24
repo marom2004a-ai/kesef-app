@@ -11,6 +11,8 @@ public enum MorningDocType: Int, CaseIterable, Sendable, Identifiable {
     case taxInvoice = 305
     /// חשבון עסקה / דרישת תשלום (לא מסמך מס)
     case proforma = 300
+    /// חשבונית זיכוי — מבטלת חשבונית מס / חשבונית מס-קבלה
+    case creditInvoice = 330
     public var id: Int { rawValue }
     public var label: String {
         switch self {
@@ -18,10 +20,15 @@ public enum MorningDocType: Int, CaseIterable, Sendable, Identifiable {
         case .receipt: return "קבלה"
         case .taxInvoice: return "חשבונית מס"
         case .proforma: return "חשבון עסקה (דרישת תשלום)"
+        case .creditInvoice: return "חשבונית זיכוי"
         }
     }
     /// האם המסמך מתעד תשלום שהתקבל (ולכן נרשמת הכנסה מאושרת)
     public var recordsPayment: Bool { self == .taxInvoiceReceipt || self == .receipt }
+    /// האם אפשר לבטל את המסמך בחשבונית זיכוי
+    public var isCancellableByCredit: Bool { self == .taxInvoiceReceipt || self == .taxInvoice }
+    /// סוגים שמופיעים בבחירת מסמך חדש (בלי זיכוי — הוא נוצר רק מביטול)
+    public static var issuable: [MorningDocType] { [.taxInvoiceReceipt, .receipt, .taxInvoice, .proforma] }
 }
 
 public enum MorningPaymentMethod: String, CaseIterable, Sendable, Identifiable {
@@ -94,6 +101,19 @@ public struct PaymentBankDetails: Sendable, Hashable {
 }
 
 public struct MorningDocumentDraft: Sendable {
+    /// חשבונית זיכוי שמבטלת מסמך קיים (מאותו לקוח, אותו סכום ותיאור)
+    public static func cancellation(ofDocumentID id: String, originalType: MorningDocType, clientName: String, clientEmail: String?,
+                                    itemDescription: String, amountIncludingVAT: Money, vatExempt: Bool,
+                                    payment: MorningPaymentMethod, date: Date) -> MorningDocumentDraft {
+        var d = MorningDocumentDraft(type: .creditInvoice, clientName: clientName, clientEmail: clientEmail,
+                                     itemDescription: "ביטול: " + itemDescription, amountIncludingVAT: amountIncludingVAT,
+                                     vatExempt: vatExempt, payment: payment, date: date)
+        d.linkedDocumentIDs = [id]
+        d.linkType = "cancel"
+        d.includeRefundPayment = originalType.recordsPayment
+        return d
+    }
+
     public var type: MorningDocType
     public var clientName: String
     public var clientEmail: String?
@@ -108,6 +128,11 @@ public struct MorningDocumentDraft: Sendable {
     public var date: Date
     public var remarks: String?
     public var bankDetails: PaymentBankDetails?
+    /// מסמכים מקושרים (למשל המסמך שמבוטל) ואופי הקישור: "cancel" / "link"
+    public var linkedDocumentIDs: [String] = []
+    public var linkType: String?
+    /// בחשבונית זיכוי שמבטלת חשבונית מס-קבלה: לכלול שורת החזר תשלום
+    public var includeRefundPayment: Bool = false
 
     public init(type: MorningDocType, clientName: String, clientEmail: String? = nil, clientPhone: String? = nil,
                 clientTaxId: String? = nil, itemDescription: String, amountIncludingVAT: Money, vatExempt: Bool = false,
@@ -161,7 +186,7 @@ public struct MorningDocumentDraft: Sendable {
                 "vatType": vatExempt ? 2 : 1
             ] as [String: Any]]
         ]
-        if type.recordsPayment {
+        if type.recordsPayment || (type == .creditInvoice && includeRefundPayment) {
             var p: [String: Any] = ["date": Self.isoDay(date, cal), "type": payment.paymentType, "price": price, "currency": "ILS"]
             if let app = payment.appType { p["appType"] = app }
             if payment.hasBankDetails, let b = bankDetails {
@@ -175,6 +200,10 @@ public struct MorningDocumentDraft: Sendable {
                 if payment == .cheque { put("chequeNum", b.chequeNumber) }
             }
             body["payment"] = [p]
+        }
+        if !linkedDocumentIDs.isEmpty {
+            body["linkedDocumentIds"] = linkedDocumentIDs
+            if let linkType { body["linkType"] = linkType }
         }
         var notes: [String] = []
         if type.recordsPayment, payment.hasBankDetails,

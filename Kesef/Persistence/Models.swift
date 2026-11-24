@@ -239,6 +239,8 @@ final class IssuedDocument {
     var environmentRaw: String
     var entryID: UUID?
     var createdAt: Date
+    /// מספר חשבונית הזיכוי שביטלה את המסמך (nil = לא בוטל)
+    var cancelledByNumber: Int?
 
     init(externalID: String, number: Int, type: MorningDocType, clientName: String, clientEmail: String,
          itemDescription: String, amount: Money, vat: Money, payment: MorningPaymentMethod, date: Date,

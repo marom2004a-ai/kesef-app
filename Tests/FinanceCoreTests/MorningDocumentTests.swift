@@ -72,6 +72,26 @@ final class MorningDocumentTests: XCTestCase {
         XCTAssertNil((c.requestBody(calendar: cal)["payment"] as! [[String: Any]])[0]["bankName"])
     }
 
+    func testCreditInvoiceCancelsOriginal() {
+        let c = MorningDocumentDraft.cancellation(ofDocumentID: "doc-1", originalType: .taxInvoiceReceipt, clientName: "לקוח",
+                                                  clientEmail: nil, itemDescription: "אילוף", amountIncludingVAT: ILS(100),
+                                                  vatExempt: false, payment: .bit, date: D(2026, 11, 24))
+        let b = c.requestBody(calendar: cal)
+        XCTAssertEqual(b["type"] as? Int, 330)
+        XCTAssertEqual(b["linkedDocumentIds"] as? [String], ["doc-1"])
+        XCTAssertEqual(b["linkType"] as? String, "cancel")
+        XCTAssertNotNil(b["payment"], "ביטול חשבונית מס-קבלה כולל החזר תשלום")
+        XCTAssertEqual(((b["income"] as! [[String: Any]])[0]["description"] as? String), "ביטול: אילוף")
+        // ביטול חשבונית מס (בלי תשלום) — בלי שורת תשלום
+        let i = MorningDocumentDraft.cancellation(ofDocumentID: "doc-2", originalType: .taxInvoice, clientName: "לקוח",
+                                                  clientEmail: nil, itemDescription: "אילוף", amountIncludingVAT: ILS(100),
+                                                  vatExempt: false, payment: .bit, date: D(2026, 11, 24))
+        XCTAssertNil(i.requestBody(calendar: cal)["payment"])
+        XCTAssertFalse(MorningDocType.issuable.contains(.creditInvoice))
+        XCTAssertTrue(MorningDocType.taxInvoiceReceipt.isCancellableByCredit)
+        XCTAssertFalse(MorningDocType.receipt.isCancellableByCredit)
+    }
+
     func testInvoiceWithoutPaymentRows() {
         let b = draft(.taxInvoice).requestBody(calendar: cal)
         XCTAssertEqual(b["type"] as? Int, 305)
