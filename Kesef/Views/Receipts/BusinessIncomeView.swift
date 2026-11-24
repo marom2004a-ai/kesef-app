@@ -52,6 +52,9 @@ struct BusinessIncomeView: View {
     private var env: MorningService.Environment { MorningService.Environment(rawValue: envRaw) ?? .demo }
     /// הפקה אמיתית אפשרית רק במצב אמיתי עם מפתחות
     private var canIssueReal: Bool { env == .production && MorningService.isConfigured(.production) }
+    /// מצב ניסיון (Sandbox) עם מפתחות: מפיקים מסמך ניסיון — בלי לרשום הכנסה ובלי לגעת בהכנסות קיימות
+    private var isTestIssue: Bool { env == .sandbox && MorningService.isConfigured(.sandbox) }
+    private var canIssue: Bool { canIssueReal || isTestIssue }
     private var amount: Money? { AmountParser.parse(amountText)?.absolute }
     private var incomeCategories: [Category] { categories.filter { $0.scope == .business && $0.isIncome && !$0.isArchived } }
 
@@ -92,10 +95,10 @@ struct BusinessIncomeView: View {
     private var form: some View {
         Form {
             Section {
-                Label(statusText, systemImage: canIssueReal ? "checkmark.seal.fill" : "clock.badge.exclamationmark")
+                Label(statusText, systemImage: canIssueReal ? "checkmark.seal.fill" : (isTestIssue ? "testtube.2" : "clock.badge.exclamationmark"))
                     .foregroundStyle(canIssueReal ? Theme.income : Theme.warning)
                     .font(.subheadline.weight(.semibold))
-                if canIssueReal || awaiting != nil {
+                if canIssue || awaiting != nil {
                     Picker("סוג מסמך", selection: $docType) {
                         ForEach(MorningDocType.allCases.filter(\.recordsPayment)) { Text($0.label).tag($0) }
                     }
@@ -170,7 +173,7 @@ struct BusinessIncomeView: View {
                 if payment.hasBankDetails { Text("הפרטים יופיעו על הקבלה. בהעברה בנקאית הם לא חובה.") }
             }
 
-            if (awaiting == nil || isPendingIncome) && !canIssueReal {
+            if (awaiting == nil || isPendingIncome) && !canIssue {
                 Section {
                     Toggle("כבר הוצאתי קבלה מחוץ לאפליקציה", isOn: $issuedElsewhere)
                 }
@@ -192,7 +195,7 @@ struct BusinessIncomeView: View {
                 .disabled(sending)
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
-                if awaiting != nil && !canIssueReal && !isPendingIncome {
+                if awaiting != nil && !canIssue && !isPendingIncome {
                     Button("סימון שהקבלה הופקה ידנית") { markManual() }
                         .frame(maxWidth: .infinity)
                 }
@@ -213,11 +216,12 @@ struct BusinessIncomeView: View {
             Button("מחיקה", role: .destructive) { deleteAwaiting() }
             Button("ביטול", role: .cancel) {}
         } message: { Text("ההכנסה תימחק מהאפליקציה, כולל מהמע״מ והחלוקה עם השותף. אי אפשר לבטל.") }
-        .confirmationDialog("להפיק \(docType.label) רשמי?", isPresented: $confirming, titleVisibility: .visible) {
-            Button("הפקה — מסמך רשמי") { issue() }
+        .confirmationDialog(isTestIssue ? "להפיק מסמך ניסיון?" : "להפיק \(docType.label) רשמי?", isPresented: $confirming, titleVisibility: .visible) {
+            Button(isTestIssue ? "הפקת מסמך ניסיון" : "הפקה — מסמך רשמי") { issue() }
             Button("ביטול", role: .cancel) {}
         } message: {
-            Text("\(clientName) · \(MoneyFormat.string(amount ?? .zero)) · \(payment.label)\nמסמך מס רשמי לא ניתן למחיקה — רק ביטול במסמך זיכוי.")
+            Text("\(clientName) · \(MoneyFormat.string(amount ?? .zero)) · \(payment.label)\n" +
+                 (isTestIssue ? "מסמך ניסיון של morning — לא אמיתי, וההכנסה לא נרשמת." : "מסמך מס רשמי לא ניתן למחיקה — רק ביטול במסמך זיכוי."))
         }
     }
 
@@ -281,6 +285,7 @@ struct BusinessIncomeView: View {
 
     private var statusText: String {
         if canIssueReal { return "morning מחובר — תופק קבלה רשמית" }
+        if isTestIssue { return "מצב ניסיון — יופק מסמך ניסיון, ההכנסה לא תירשם" }
         if isPendingIncome { return "תשלום נכנס — בדוק את הפרטים ואשר" }
         return awaiting == nil ? "morning עוד לא מחובר — ההכנסה תישמר ותחכה לקבלה" : "morning עוד לא מחובר — אי אפשר להפיק עכשיו"
     }
@@ -288,12 +293,14 @@ struct BusinessIncomeView: View {
     private var primaryTitle: String {
         if sending { return "מפיק…" }
         if canIssueReal { return awaiting == nil ? "שמירה והפקת קבלה" : (isPendingIncome ? "אישור והפקת קבלה" : "הפקת קבלה") }
+        if isTestIssue { return "הפקת מסמך ניסיון" }
         if isPendingIncome { return "אישור ההכנסה" }
         return awaiting == nil ? "שמירת ההכנסה" : "חיבור morning"
     }
 
     private var footerText: String {
         if canIssueReal { return "הקבלה מופקת ב-morning, נשלחת ללקוח במייל אם הוזן, וההכנסה נרשמת כאן מקושרת אליה — כולל מע״מ וחלוקה עם השותף." }
+        if isTestIssue { return "בדיקה בלבד: המסמך נוצר בסביבת הניסיון של morning. שום הכנסה לא נרשמת ושום דבר לא משתנה בנתונים שלך. לקבלות אמיתיות — מצב אמיתי בהגדרות ⚙️." }
         if issuedElsewhere { return "ההכנסה תירשם כמכוסה בקבלה." }
         return "ההכנסה נרשמת עכשיו (כולל מע״מ וחלוקה עם השותף) ומופיעה ב״מחכות לקבלה״. כשתחבר את morning — מפיקים משם בלחיצה."
     }
@@ -304,7 +311,8 @@ struct BusinessIncomeView: View {
         VStack(spacing: 16) {
             DogCompanionView(mood: .proud, size: 80)
             Text("\(docType.label) מס׳ \(doc.number) הופק").font(.title2.bold()).multilineTextAlignment(.center)
-            Text("ההכנסה רשומה ומקושרת לקבלה.").foregroundStyle(Theme.mutedText)
+            Text(isTestIssue ? "מסמך ניסיון — לא אמיתי, וההכנסה לא נרשמה." : "ההכנסה רשומה ומקושרת לקבלה.")
+                .foregroundStyle(isTestIssue ? Theme.warning : Theme.mutedText)
             if doc.taxAuthorityError != 0 {
                 Label("רשות המסים החזירה שגיאה (\(doc.taxAuthorityError)) על מספר ההקצאה. בדוק את המסמך ב-morning.", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(Theme.warning).font(.footnote)
@@ -372,7 +380,7 @@ struct BusinessIncomeView: View {
     private func primaryAction() {
         error = nil
         guard let a = amount, a.isPositive else { error = "הזן סכום גדול מאפס."; return }
-        if canIssueReal {
+        if canIssue {
             do { try draft.validate(); confirming = true } catch { self.error = message(for: error) }
             return
         }
@@ -485,6 +493,18 @@ struct BusinessIncomeView: View {
         Task {
             do {
                 let doc = try await MorningService.createDocument(d)
+                if isTestIssue {
+                    // מסמך ניסיון: נשמר רק ברשימת המסמכים (מסומן "ניסיון"), בלי הכנסה ובלי לשנות הכנסות קיימות
+                    let saved = IssuedDocument(externalID: doc.id, number: doc.number, type: d.type, clientName: d.clientName,
+                                               clientEmail: d.clientEmail ?? "", itemDescription: d.itemDescription,
+                                               amount: d.amountIncludingVAT, vat: .zero, payment: d.payment, date: d.date,
+                                               url: doc.url, environment: env.rawValue)
+                    context.insert(saved)
+                    try context.save()
+                    created = doc
+                    sending = false
+                    return
+                }
                 let entry: Entry?
                 if let e = awaiting {
                     // הכנסה שכבר רשומה — רק מקשרים אליה את המסמך (לא נרשמת פעמיים)
