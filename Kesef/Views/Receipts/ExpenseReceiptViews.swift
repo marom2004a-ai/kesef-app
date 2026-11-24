@@ -382,3 +382,54 @@ struct ExpenseReceiptDetailView: View {
         }
     }
 }
+
+// MARK: - כפתור סריקת קבלה (לשימוש בהוספת הוצאה ובאישור רכישה)
+
+/// סריקה ישירה של הקבלה בזמן רישום ההוצאה — כדי שבסוף החודש הכול מוכן לרואה החשבון
+struct ReceiptCaptureButton: View {
+    @Binding var receipt: Data?
+    @State private var showScanner = false
+    @State private var photoItem: PhotosPickerItem?
+    @State private var thumb: UIImage?
+
+    private var canScan: Bool { VNDocumentCameraViewController.isSupported || UIImagePickerController.isSourceTypeAvailable(.camera) }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let thumb {
+                Image(uiImage: thumb).resizable().scaledToFill()
+                    .frame(width: 46, height: 46).clipShape(RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 2) {
+                    Label("הקבלה צורפה", systemImage: "checkmark.circle.fill").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.income)
+                    Text("תישלח עם הדוח לרואה החשבון").font(.caption2).foregroundStyle(Theme.mutedText)
+                }
+                Spacer()
+                Button { receipt = nil } label: { Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(Theme.mutedText) }
+                    .buttonStyle(.plain).accessibilityLabel("הסרת הקבלה")
+            } else {
+                Button { showScanner = true } label: {
+                    Label("סריקת הקבלה", systemImage: "doc.viewfinder").font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .foregroundStyle(Theme.onGold)
+                        .background(Theme.gold, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canScan)
+                PhotosPicker(selection: $photoItem, matching: .images) {
+                    Image(systemName: "photo.on.rectangle").font(.headline)
+                        .frame(width: 48, height: 44)
+                        .background(Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .accessibilityLabel("בחירת קבלה מהתמונות")
+            }
+        }
+        .fullScreenCover(isPresented: $showScanner) { ReceiptScanner { receipt = $0 }.ignoresSafeArea() }
+        .onChange(of: photoItem) { _, item in
+            Task { if let data = try? await item?.loadTransferable(type: Data.self) { receipt = EntryEditorView.compress(data) } }
+        }
+        .task(id: receipt) {
+            guard let receipt else { thumb = nil; return }
+            thumb = await UIImage(data: receipt)?.byPreparingThumbnail(ofSize: CGSize(width: 120, height: 120))
+        }
+    }
+}

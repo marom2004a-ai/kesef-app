@@ -92,6 +92,7 @@ struct PendingReviewView: View {
     @State private var error: String?
     @State private var showReject = false
     @State private var loaded = false
+    @State private var receipt: Data?
 
     private var amount: Money? { AmountParser.parse(amountText)?.absolute }
     private var businessPart: Money? { AmountParser.parse(businessText)?.absolute }
@@ -117,6 +118,13 @@ struct PendingReviewView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("קטגוריה").font(.headline)
                             CategoryChips(selection: $categoryID, scope: scope, isIncome: false)
+                        }.card()
+                    }
+
+                    if scope == .business || split {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("קבלה לרואה החשבון").font(.headline)
+                            ReceiptCaptureButton(receipt: $receipt)
                         }.card()
                     }
 
@@ -279,7 +287,12 @@ struct PendingReviewView: View {
             businessCategoryID: businessCategoryID, personalCategoryID: personalCategoryID,
             rememberCardForAccount: rememberCard)
         do {
-            try PendingTransactionService(context: context).confirm(entry, with: req)
+            let saved = try PendingTransactionService(context: context).confirm(entry, with: req)
+            // הקבלה מצורפת לחלק העסקי (בפיצול — רק לחלק העסקי)
+            if let receipt {
+                for e in saved where e.scope == .business { e.receiptImage = receipt }
+                try context.save()
+            }
             NotificationService.removePendingNotification(entryID: entry.id)
             Task { await NotificationService.updateBadge(context: context); await NotificationService.checkBudgets(context: context) }
             dismiss()

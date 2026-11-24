@@ -239,6 +239,7 @@ struct EntryEditorView: View {
             if isNew, let p = prefill, title.isEmpty && amountText.isEmpty {
                 amountText = p.amountText; title = p.title; scope = p.scope; categoryID = p.categoryID
                 if let a = p.accountID { accountID = a }
+                if let r = p.receipt { receipt = r }
             }
             return
         }

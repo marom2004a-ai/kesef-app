@@ -8,6 +8,7 @@ struct QuickPrefill {
     var scope: Scope
     var categoryID: UUID?
     var accountID: UUID?
+    var receipt: Data? = nil
 }
 
 /// הוספה מהירה: מקלדת מספרים גדולה → קטגוריה → שמירה. שתי לחיצות.
@@ -27,6 +28,7 @@ struct QuickEntryView: View {
     @State private var categoryID: UUID?
     @State private var accountID: UUID?
     @State private var fromAccountID: UUID?
+    @State private var receipt: Data?
     @State private var showFull = false
     @State private var error: String?
     @State private var saved = 0
@@ -102,7 +104,8 @@ struct QuickEntryView: View {
         }
         .navigationDestination(isPresented: $showFull) {
             EntryEditorView(kind: kind, prefill: QuickPrefill(amountText: amountText, title: title, scope: scope,
-                                                              categoryID: categoryID, accountID: accountID)) { dismiss() }
+                                                              categoryID: categoryID, accountID: accountID,
+                                                              receipt: receipt)) { dismiss() }
         }
         .onAppear(perform: restoreAccount)
         .onChange(of: scope) { _, _ in
@@ -161,6 +164,9 @@ struct QuickEntryView: View {
 
     private var expenseSection: some View {
         VStack(spacing: 14) {
+            if scope == .business {
+                ReceiptCaptureButton(receipt: $receipt)
+            }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -255,6 +261,7 @@ struct QuickEntryView: View {
         let e = Entry(kind: kind, status: .confirmed, amount: amount, date: .now,
                       title: cleanTitle.isEmpty ? (cat?.name ?? kind.label) : cleanTitle, scope: scope)
         e.categoryID = categoryID
+        if scope == .business, let receipt { e.receiptImage = receipt }
         e.accountID = accountID
         if kind == .expense {
             e.paymentMethod = accounts.first { $0.id == accountID }?.kind == .cash ? .cash : .creditCard
