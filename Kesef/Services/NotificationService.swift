@@ -38,12 +38,9 @@ enum NotificationService {
     static func notifyPendingPurchase(entryID: UUID, merchant: String, amount: Money?, needsDetails: Bool, possibleDuplicate: Bool) async {
         let content = UNMutableNotificationContent()
         // הסכום בכותרת — הדבר הראשון שרואים. החזקה על ההתראה פותחת: אוכל / קניות / אחר / עסקי
-        let amountText = amount.map { MoneyFormat.string($0) } ?? "רכישה חדשה"
-        content.title = "💳 \(amountText)"
-        var body = merchant.isEmpty ? "" : merchant + " · "
-        body += needsDetails ? "חסרים פרטים — לחץ להשלמה." : "מה זה? לחיצה ארוכה: אוכל · קניות · אחר · עסקי"
-        if possibleDuplicate { body += " (ייתכן שזו כפילות)" }
-        content.body = body
+        // רק הסכום — בלי שם בית עסק ובלי פרטים. החזקה על ההתראה: אוכל / קניות / אחר / עסקי
+        content.title = amount.map { MoneyFormat.string($0) } ?? "רכישה חדשה"
+        content.body = needsDetails ? "לחץ להשלמה" : "מה זה?"
         content.sound = .default
         content.userInfo = [entryIDKey: entryID.uuidString]
         if !needsDetails { content.categoryIdentifier = pendingCategory }
