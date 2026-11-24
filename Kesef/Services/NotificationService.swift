@@ -12,10 +12,16 @@ enum NotificationService {
 
     static var center: UNUserNotificationCenter { .current() }
 
+    /// פעולות מהירות: "QUICK_food" / "QUICK_shopping" / "QUICK_other" — אישור כהוצאה אישית בקטגוריה; "עסקי" פותח את האפליקציה
+    static let quickPrefix = "QUICK_"
+    static let businessAction = "BUSINESS"
+
     static func registerCategories() {
-        let confirm = UNNotificationAction(identifier: confirmPersonalAction, title: "אשר כהוצאה אישית", options: [.authenticationRequired])
-        let review = UNNotificationAction(identifier: reviewAction, title: "פתח לבדיקה", options: [.foreground])
-        let cat = UNNotificationCategory(identifier: pendingCategory, actions: [confirm, review], intentIdentifiers: [], options: [])
+        var actions: [UNNotificationAction] = PendingTransactionService.QuickChoice.allCases.map {
+            UNNotificationAction(identifier: quickPrefix + $0.rawValue, title: "\($0.emoji) \($0.title)", options: [.authenticationRequired])
+        }
+        actions.append(UNNotificationAction(identifier: businessAction, title: "💼 עסקי (עם קבלה)", options: [.foreground]))
+        let cat = UNNotificationCategory(identifier: pendingCategory, actions: actions, intentIdentifiers: [], options: [])
         center.setNotificationCategories([cat])
     }
 
@@ -31,12 +37,12 @@ enum NotificationService {
     /// התראה על רכישה חדשה שממתינה לאישור. אם המשתמש לא אישר התראות — פשוט לא תוצג; העסקה עדיין בתיבת הממתינות.
     static func notifyPendingPurchase(entryID: UUID, merchant: String, amount: Money?, needsDetails: Bool, possibleDuplicate: Bool) async {
         let content = UNMutableNotificationContent()
-        content.title = "זוהתה רכישה חדשה"
-        let amountText = amount.map { MoneyFormat.string($0) } ?? "סכום חסר"
-        let name = merchant.isEmpty ? "בית עסק לא ידוע" : merchant
-        var body = "\(name) · \(amountText) · סווגה כ\(AppSettings.defaultApplePayScope.expenseLabel)."
-        if needsDetails { body += " חסרים פרטים — יש להשלים." }
-        if possibleDuplicate { body += " ייתכן שזו כפילות." }
+        // הסכום בכותרת — הדבר הראשון שרואים. החזקה על ההתראה פותחת: אוכל / קניות / אחר / עסקי
+        let amountText = amount.map { MoneyFormat.string($0) } ?? "רכישה חדשה"
+        content.title = "💳 \(amountText)"
+        var body = merchant.isEmpty ? "" : merchant + " · "
+        body += needsDetails ? "חסרים פרטים — לחץ להשלמה." : "מה זה? לחיצה ארוכה: אוכל · קניות · אחר · עסקי"
+        if possibleDuplicate { body += " (ייתכן שזו כפילות)" }
         content.body = body
         content.sound = .default
         content.userInfo = [entryIDKey: entryID.uuidString]

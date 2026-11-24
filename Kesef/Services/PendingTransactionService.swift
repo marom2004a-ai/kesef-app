@@ -158,6 +158,42 @@ struct PendingTransactionService {
         return [entry]
     }
 
+    /// בחירה מהירה: אוכל / קניות / אחר — אישור כהוצאה אישית בקטגוריה המתאימה.
+    /// מחזיר false אם חסר סכום (אז פותחים את המסך המלא).
+    enum QuickChoice: String, CaseIterable, Identifiable {
+        case food, shopping, other
+        var id: String { rawValue }
+        var title: String {
+            switch self { case .food: return "אוכל"; case .shopping: return "קניות"; case .other: return "אחר" }
+        }
+        var emoji: String {
+            switch self { case .food: return "🍔"; case .shopping: return "🛍️"; case .other: return "📦" }
+        }
+        /// שמות הקטגוריות האישיות המתאימות (הראשונה שקיימת)
+        var categoryNames: [String] {
+            switch self {
+            case .food: return ["מזון וסופר", "מסעדות וקפה"]
+            case .shopping: return ["קניות"]
+            case .other: return ["אחר אישי"]
+            }
+        }
+    }
+
+    func quickConfirm(_ entry: Entry, choice: QuickChoice) throws -> Bool {
+        guard entry.amount.isPositive else { return false }
+        let cats = Ledger(context: context).categories().filter { $0.scope == .personal && !$0.isIncome && !$0.isArchived }
+        let cat = choice.categoryNames.lazy.compactMap { name in cats.first { $0.name == name } }.first
+        entry.scope = .personal
+        entry.categoryID = cat?.id
+        if entry.title.trimmingCharacters(in: .whitespaces).isEmpty { entry.title = cat?.name ?? choice.title }
+        entry.status = .confirmed
+        entry.confirmedAt = now()
+        entry.updatedAt = now()
+        entry.possibleDuplicateOfID = nil
+        try context.save()
+        return true
+    }
+
     /// אישור מהיר מההתראה: כמו שהגיע, בסיווג ברירת המחדל (אישי). רק אם יש סכום ושם.
     func quickConfirm(_ entry: Entry) throws -> Bool {
         guard entry.amount.isPositive, !entry.title.trimmingCharacters(in: .whitespaces).isEmpty else { return false }

@@ -103,6 +103,7 @@ struct PendingReviewView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     header
+                    quickRow
                     if let error { ErrorBanner(message: error) }
                     if let dupID = entry.possibleDuplicateOfID { duplicateWarning(dupID) }
                     if editing || needsDetails { detailsEditor } else { detailsSummary }
@@ -151,6 +152,53 @@ struct PendingReviewView: View {
                 Button("דחה — לא לשמור כהוצאה", role: .destructive) { reject() }
             } message: { Text("העסקה תסומן כ'בוטלה' ולא תיכלל בחישובים. אם האוטומציה תרוץ שוב על אותה רכישה, היא לא תיווצר מחדש.") }
         }
+    }
+
+    /// בחירה מהירה: אוכל / קניות / אחר — מאשר מיד כהוצאה אישית. "עסקי" עובר לסיווג עסקי ולסריקת קבלה.
+    private var quickRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("מה זה?").font(.headline)
+            HStack(spacing: 8) {
+                ForEach(PendingTransactionService.QuickChoice.allCases) { c in
+                    Button { quick(c) } label: {
+                        VStack(spacing: 4) {
+                            Text(c.emoji).font(.title2)
+                            Text(c.title).font(.subheadline.weight(.semibold))
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 64)
+                        .background(Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+                Button { withAnimation(.snappy) { scope = .business; split = false } } label: {
+                    VStack(spacing: 4) {
+                        Text("💼").font(.title2)
+                        Text("עסקי").font(.subheadline.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 64)
+                    .foregroundStyle(scope == .business ? Theme.onGold : .primary)
+                    .background(scope == .business ? Theme.gold : Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .card()
+    }
+
+    private func quick(_ c: PendingTransactionService.QuickChoice) {
+        // אם תוקן הסכום או השם במסך — שומרים לפני האישור המהיר
+        if let a = amount, a.isPositive { entry.amount = a }
+        if !title.trimmingCharacters(in: .whitespaces).isEmpty { entry.title = title }
+        do {
+            if try PendingTransactionService(context: context).quickConfirm(entry, choice: c) {
+                NotificationService.removePendingNotification(entryID: entry.id)
+                Task { await NotificationService.updateBadge(context: context); await NotificationService.checkBudgets(context: context) }
+                dismiss()
+            } else {
+                error = "חסר סכום — הזן אותו ואז בחר."
+                editing = true
+            }
+        } catch { self.error = error.localizedDescription }
     }
 
     private var header: some View {

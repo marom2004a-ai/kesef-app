@@ -113,7 +113,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     @MainActor
     static func handle(entryID id: UUID, action: String) async {
         let context = Persistence.shared.mainContext
-        if action == NotificationService.confirmPersonalAction,
+        if action.hasPrefix(NotificationService.quickPrefix),
+           let choice = PendingTransactionService.QuickChoice(rawValue: String(action.dropFirst(NotificationService.quickPrefix.count))),
+           let entry = Ledger(context: context).entry(id: id), entry.status == .pendingReview {
+            let ok = (try? PendingTransactionService(context: context).quickConfirm(entry, choice: choice)) ?? false
+            if !ok { AppRouter.shared.openPending(id) }
+        } else if action == NotificationService.confirmPersonalAction,
            let entry = Ledger(context: context).entry(id: id), entry.status == .pendingReview {
             let ok = (try? PendingTransactionService(context: context).quickConfirm(entry)) ?? false
             if !ok { AppRouter.shared.openPending(id) }
