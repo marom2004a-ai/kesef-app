@@ -118,6 +118,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
            let entry = Ledger(context: context).entry(id: id), entry.status == .pendingReview {
             let ok = (try? PendingTransactionService(context: context).quickConfirm(entry, choice: choice)) ?? false
             if !ok { AppRouter.shared.openPending(id) }
+        } else if action == NotificationService.businessAction,
+                  let entry = Ledger(context: context).entry(id: id), entry.status == .pendingReview {
+            // עסקי: מסמנים כעסקית ופותחים את המסך — שם בוחרים קטגוריה וסורקים קבלה
+            entry.scope = .business
+            try? context.save()
+            AppRouter.shared.openPending(id)
         } else if action == NotificationService.confirmPersonalAction,
            let entry = Ledger(context: context).entry(id: id), entry.status == .pendingReview {
             let ok = (try? PendingTransactionService(context: context).quickConfirm(entry)) ?? false
