@@ -22,6 +22,8 @@ struct BusinessPeriodReportView: View {
     @State private var tab: Tab = .income
     @State private var editing: Entry?
     @State private var attachTo: Entry?
+    @State private var deleting: Entry?
+    @Environment(\.modelContext) private var context
     @State private var exportItems: [URL] = []
     @State private var error: String?
 
@@ -88,9 +90,12 @@ struct BusinessPeriodReportView: View {
                                 Button { attachTo = byID[l.id] } label: { Label("צילום קבלה", systemImage: "camera") }.tint(Theme.accent)
                             }
                         }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) { deleting = byID[l.id] } label: { Label("מחיקה", systemImage: "trash") }
+                        }
                 }
             } footer: {
-                Text(tab == .expenses ? "החלקה ימינה על הוצאה בלי קבלה מאפשרת לצלם לה קבלה. לחיצה פותחת לעריכה." : "רק הכנסות עסקיות שסומנו כ״התקבלה בפועל״. לחיצה פותחת לעריכה.")
+                Text(tab == .expenses ? "החלקה ימינה על הוצאה בלי קבלה מאפשרת לצלם לה קבלה. לחיצה פותחת לעריכה, החלקה שמאלה מוחקת." : "רק הכנסות עסקיות שסומנו כ״התקבלה בפועל״. לחיצה פותחת לעריכה, החלקה שמאלה מוחקת.")
             }
 
             Section {
@@ -111,6 +116,13 @@ struct BusinessPeriodReportView: View {
         .kesefScreen()
         .sheet(item: $editing) { e in NavigationStack { EntryEditorView(existing: e) } }
         .sheet(item: $attachTo) { e in NavigationStack { ExpenseReceiptCaptureView(attachTo: e) } }
+        .confirmationDialog("למחוק את התנועה?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                            titleVisibility: .visible) {
+            Button("מחיקה", role: .destructive) {
+                if let e = deleting { try? LedgerService(context: context).delete(e); exportItems = [] }
+                deleting = nil
+            }
+        } message: { Text("למשהו שנרשם בטעות. התנועה תימחק מהדוח ומהמע״מ — אי אפשר לבטל.") }
     }
 
     private func row(_ l: PeriodReportLine, category: String?) -> some View {

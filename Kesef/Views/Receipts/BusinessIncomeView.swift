@@ -44,6 +44,7 @@ struct BusinessIncomeView: View {
     @State private var loaded = false
     @State private var saveClient = true
     @State private var selectedClientID: UUID?
+    @State private var confirmDelete = false
 
     /// תשלום נכנס (SMS) שעוד לא אושר
     private var isPendingIncome: Bool { awaiting?.status == .pendingReview }
@@ -200,7 +201,18 @@ struct BusinessIncomeView: View {
                         .frame(maxWidth: .infinity)
                 }
             } footer: { Text(footerText) }
+
+            if let e = awaiting, e.status != .pendingReview {
+                Section {
+                    Button("מחיקת ההכנסה", role: .destructive) { confirmDelete = true }
+                        .frame(maxWidth: .infinity)
+                } footer: { Text("להכנסה שנרשמה בטעות. אם כבר הופקה לה קבלה רשמית — הקבלה עצמה לא נמחקת (מבטלים אותה בחשבונית זיכוי).") }
+            }
         }
+        .confirmationDialog("למחוק את ההכנסה?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("מחיקה", role: .destructive) { deleteAwaiting() }
+            Button("ביטול", role: .cancel) {}
+        } message: { Text("ההכנסה תימחק מהאפליקציה, כולל מהמע״מ והחלוקה עם השותף. אי אפשר לבטל.") }
         .confirmationDialog("להפיק \(docType.label) רשמי?", isPresented: $confirming, titleVisibility: .visible) {
             Button("הפקה — מסמך רשמי") { issue() }
             Button("ביטול", role: .cancel) {}
@@ -450,6 +462,15 @@ struct BusinessIncomeView: View {
         dismiss()
     }
 
+    private func deleteAwaiting() {
+        guard let e = awaiting else { return }
+        do {
+            try LedgerService(context: context).delete(e)
+            Task { await AppLifecycle.refresh() }
+            dismiss()
+        } catch { self.error = "המחיקה נכשלה: \(error.localizedDescription)" }
+    }
+
     private func markManual() {
         guard let e = awaiting else { return }
         e.externalRef = IncomeReceipts.manualRef
@@ -500,6 +521,7 @@ struct AwaitingReceiptsSection: View {
     var entries: [Entry]
     @Environment(\.modelContext) private var context
     @State private var issuing: Entry?
+    @State private var deleting: Entry?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -526,11 +548,19 @@ struct AwaitingReceiptsSection: View {
                         e.externalRef = IncomeReceipts.manualRef
                         try? context.save()
                     }
+                    Button("מחיקת ההכנסה (נרשמה בטעות)", systemImage: "trash", role: .destructive) { deleting = e }
                 }
             }
-            Text("לחיצה ארוכה על הכנסה — סימון שהקבלה הופקה מחוץ לאפליקציה.").font(.caption2).foregroundStyle(Theme.mutedText)
+            Text("לחיצה ארוכה על הכנסה — סימון שהקבלה הופקה מחוץ לאפליקציה, או מחיקה אם נרשמה בטעות.").font(.caption2).foregroundStyle(Theme.mutedText)
         }
         .card()
         .sheet(item: $issuing) { e in NavigationStack { BusinessIncomeView(awaiting: e) } }
+        .confirmationDialog("למחוק את ההכנסה?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                            titleVisibility: .visible) {
+            Button("מחיקה", role: .destructive) {
+                if let e = deleting { try? LedgerService(context: context).delete(e) }
+                deleting = nil
+            }
+        } message: { Text("אי אפשר לבטל.") }
     }
 }

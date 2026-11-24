@@ -334,6 +334,7 @@ struct ExpenseReceiptDetailView: View {
     @State private var shareURL: URL?
     @State private var showEdit = false
     @State private var confirmRemove = false
+    @State private var confirmDeleteAll = false
 
     var body: some View {
         ScrollView {
@@ -358,7 +359,11 @@ struct ExpenseReceiptDetailView: View {
                 }
                 .buttonStyle(.bordered)
                 Button(role: .destructive) { confirmRemove = true } label: {
-                    Label("הסרת הצילום מההוצאה", systemImage: "trash").frame(maxWidth: .infinity, minHeight: 44)
+                    Label("הסרת הצילום בלבד", systemImage: "photo.badge.minus").frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                Button(role: .destructive) { confirmDeleteAll = true } label: {
+                    Label("מחיקת ההוצאה והקבלה (נרשמה בטעות)", systemImage: "trash").frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.bordered)
             }
@@ -375,6 +380,13 @@ struct ExpenseReceiptDetailView: View {
                 dismiss()
             }
         } message: { Text("ההוצאה עצמה נשארת. רק התמונה תימחק.") }
+        .confirmationDialog("למחוק את ההוצאה ואת הקבלה?", isPresented: $confirmDeleteAll, titleVisibility: .visible) {
+            Button("מחיקה", role: .destructive) {
+                try? LedgerService(context: context).delete(entry)
+                Task { await AppLifecycle.refresh() }
+                dismiss()
+            }
+        } message: { Text("ההוצאה תימחק מהאפליקציה, מהדוחות ומהמע״מ. אי אפשר לבטל.") }
         .task {
             guard let data = entry.receiptImage else { return }
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("kabala-\(entry.id.uuidString.prefix(8)).jpg")
