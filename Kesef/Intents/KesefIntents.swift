@@ -32,22 +32,41 @@ struct LogApplePayPurchaseIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let context = Persistence.shared.mainContext
-        let service = PendingTransactionService(context: context)
-        let result = try service.ingestApplePay(amountText: amount, merchant: merchant, cardLabel: card, details: details)
-        switch result {
-        case .duplicateIgnored:
-            return .result(dialog: "הרכישה כבר נרשמה — לא נוצרה כפילות.")
-        case let .created(id, needsDetails, possibleDuplicate):
-            let entry = Ledger(context: context).entry(id: id)
-            await NotificationService.notifyPendingPurchase(entryID: id, merchant: entry?.title ?? "",
-                                                            amount: entry.flatMap { $0.amount.isPositive ? $0.amount : nil },
-                                                            needsDetails: needsDetails, possibleDuplicate: possibleDuplicate)
-            await NotificationService.updateBadge(context: context)
-            if needsDetails { return .result(dialog: "נוצרה עסקה ממתינה — חסרים פרטים להשלמה באפליקציה.") }
-            return .result(dialog: "נרשמה רכישה ממתינה לאישור.")
+        // אבחון: נרשם עוד לפני כל עבודה — כדי לדעת שהאפליקציה בכלל קיבלה את ההפעלה ומה הגיע
+        let d = UserDefaults.standard
+        d.set(Date.now.timeIntervalSinceReferenceDate, forKey: IntentDiagnostics.attemptKey)
+        d.set("סכום: \(amount ?? "—") · בית עסק: \(merchant ?? "—") · כרטיס: \(card ?? "—") · פרטים: \(details.map { String($0.prefix(80)) } ?? "—")",
+              forKey: IntentDiagnostics.inputKey)
+        d.removeObject(forKey: IntentDiagnostics.errorKey)
+        do {
+            let context = Persistence.shared.mainContext
+            let service = PendingTransactionService(context: context)
+            let result = try service.ingestApplePay(amountText: amount, merchant: merchant, cardLabel: card, details: details)
+            switch result {
+            case .duplicateIgnored:
+                return .result(dialog: "הרכישה כבר נרשמה — לא נוצרה כפילות.")
+            case let .created(id, needsDetails, possibleDuplicate):
+                let entry = Ledger(context: context).entry(id: id)
+                await NotificationService.notifyPendingPurchase(entryID: id, merchant: entry?.title ?? "",
+                                                                amount: entry.flatMap { $0.amount.isPositive ? $0.amount : nil },
+                                                                needsDetails: needsDetails, possibleDuplicate: possibleDuplicate)
+                await NotificationService.updateBadge(context: context)
+                if needsDetails { return .result(dialog: "נוצרה עסקה ממתינה — חסרים פרטים להשלמה באפליקציה.") }
+                return .result(dialog: "נרשמה רכישה ממתינה לאישור.")
+            }
+        } catch {
+            // לא זורקים שגיאה ל-Shortcuts (ההודעה שם כללית וחסרת מידע) — שומרים אותה ומציגים במסך האוטומציות
+            d.set(error.localizedDescription, forKey: IntentDiagnostics.errorKey)
+            return .result(dialog: "הרישום נכשל: \(error.localizedDescription)")
         }
     }
+}
+
+/// מפתחות אבחון לאוטומציה — מוצגים בעוד ← אוטומציות
+enum IntentDiagnostics {
+    static let attemptKey = "intentLastAttemptAt"
+    static let inputKey = "intentLastInput"
+    static let errorKey = "intentLastError"
 }
 
 /// תשלום נכנס מלקוח (ביט / פייבוקס / העברה) — מאוטומציית "הודעה" בקיצורים שמעבירה את טקסט ה-SMS.

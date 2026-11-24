@@ -6,6 +6,9 @@ struct AutomationSetupView: View {
     @Environment(\.modelContext) private var context
     @Environment(AppRouter.self) private var router
     @AppStorage(AppSettings.Key.lastApplePayIntentAt) private var lastIntent: Double = 0
+    @AppStorage(IntentDiagnostics.attemptKey) private var lastAttempt: Double = 0
+    @AppStorage(IntentDiagnostics.inputKey) private var lastInput = ""
+    @AppStorage(IntentDiagnostics.errorKey) private var lastError = ""
     @Query private var aliases: [CardAlias]
     @Query private var accounts: [Account]
     @State private var notifStatus = ""
@@ -21,6 +24,15 @@ struct AutomationSetupView: View {
                 } else {
                     Label("הפעולה הופעלה מ-Shortcuts לאחרונה: \(Fmt.dateTime(Date(timeIntervalSinceReferenceDate: lastIntent)))",
                           systemImage: "checkmark.circle.fill").foregroundStyle(Theme.income)
+                }
+                if lastAttempt > 0 {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("ניסיון אחרון: \(Fmt.dateTime(Date(timeIntervalSinceReferenceDate: lastAttempt)))").font(.caption.weight(.semibold))
+                        Text("מה הגיע מ-Shortcuts: \(lastInput)").font(.caption2).foregroundStyle(.secondary)
+                        if !lastError.isEmpty {
+                            Text("שגיאה: \(lastError)").font(.caption2).foregroundStyle(Theme.expense)
+                        }
+                    }
                 }
                 LabeledContent("הרשאת התראות", value: notifStatus)
                 if notifStatus != "מאושרת" {
