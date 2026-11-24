@@ -119,8 +119,8 @@ struct BusinessIncomeView: View {
                 clientSuggestions
                 TextField("מייל — הקבלה תישלח אליו (לא חובה)", text: $clientEmail)
                     .keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .environment(\.layoutDirection, .leftToRight)
-                TextField("נייד (לא חובה)", text: $clientPhone).keyboardType(.phonePad)
+                    .ltrInput()
+                TextField("נייד (לא חובה)", text: $clientPhone).keyboardType(.phonePad).ltrInput()
                 Toggle("לשמור את הלקוח לפעם הבאה", isOn: $saveClient)
             } header: { Text("לקוח") }
               footer: { if selectedClientID != nil { Text("הפרטים מולאו מהלקוח השמור — אפשר לשנות.") } }
@@ -154,14 +154,14 @@ struct BusinessIncomeView: View {
                 if payment.hasBankDetails {
                     TextField(payment == .cheque ? "בנק המושך" : "בנק", text: $bankName)
                     HStack {
-                        TextField("סניף", text: $bankBranch).keyboardType(.numberPad)
+                        TextField("סניף", text: $bankBranch).keyboardType(.numberPad).ltrInput()
                         Divider()
-                        TextField("מספר חשבון", text: $bankAccount).keyboardType(.numberPad)
+                        TextField("מספר חשבון", text: $bankAccount).keyboardType(.numberPad).ltrInput()
                     }
                     if payment == .cheque {
-                        TextField("מספר צ׳ק (חובה)", text: $chequeNumber).keyboardType(.numberPad)
+                        TextField("מספר צ׳ק (חובה)", text: $chequeNumber).keyboardType(.numberPad).ltrInput()
                     }
-                    TextField("אסמכתא", text: $reference).keyboardType(.numbersAndPunctuation)
+                    TextField("אסמכתא", text: $reference).keyboardType(.numbersAndPunctuation).ltrInput()
                 }
                 DatePicker(payment == .cheque ? "תאריך פירעון" : "תאריך", selection: $date, displayedComponents: .date)
                 AccountPicker(title: "נכנס לחשבון", selection: $accountID)

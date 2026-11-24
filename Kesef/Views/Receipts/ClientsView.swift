@@ -79,9 +79,9 @@ struct ClientEditorView: View {
             Section("פרטים") {
                 TextField("שם", text: $name)
                 TextField("מייל", text: $email).keyboardType(.emailAddress).textInputAutocapitalization(.never)
-                    .autocorrectionDisabled().environment(\.layoutDirection, .leftToRight)
-                TextField("נייד", text: $phone).keyboardType(.phonePad)
-                TextField("ח״פ / ת״ז (לא חובה)", text: $taxId).keyboardType(.numberPad)
+                    .autocorrectionDisabled().ltrInput()
+                TextField("נייד", text: $phone).keyboardType(.phonePad).ltrInput()
+                TextField("ח״פ / ת״ז (לא חובה)", text: $taxId).keyboardType(.numberPad).ltrInput()
             }
             Section("ברירות מחדל להכנסה") {
                 Picker("אמצעי תשלום", selection: $payment) {
@@ -96,8 +96,8 @@ struct ClientEditorView: View {
             }
             Section("פרטי בנק (לצ׳קים והעברות)") {
                 TextField("בנק", text: $bankName)
-                TextField("סניף", text: $bankBranch).keyboardType(.numberPad)
-                TextField("מספר חשבון", text: $bankAccount).keyboardType(.numberPad)
+                TextField("סניף", text: $bankBranch).keyboardType(.numberPad).ltrInput()
+                TextField("מספר חשבון", text: $bankAccount).keyboardType(.numberPad).ltrInput()
             }
             Section { TextField("הערה", text: $note, axis: .vertical) }
             if client != nil {

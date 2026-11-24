@@ -60,6 +60,13 @@ extension ButtonStyle where Self == GoldButtonStyle {
 }
 
 extension View {
+    /// שדה מספרים / טלפון / מייל: מוקלד משמאל לימין אבל מיושר לימין כמו שאר הטופס.
+    /// בלי זה, ב-RTL כפוי, ספרות שמוקלדות לפעמים לא מוצגות עד שעוברים לשדה הבא.
+    func ltrInput() -> some View {
+        self.multilineTextAlignment(.trailing)
+            .environment(\.layoutDirection, .leftToRight)
+    }
+
     func card() -> some View { modifier(CardModifier()) }
     func kesefScreen() -> some View { modifier(KesefScreen()) }
 }
